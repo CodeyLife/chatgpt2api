@@ -61,6 +61,27 @@ def _collect_image_urls(data: list[Any]) -> list[str]:
     return urls
 
 
+def _strip_b64_for_storage(data: list[Any]) -> list[dict[str, Any]]:
+    """剥离 b64_json，仅保留 url/revised_prompt。
+    图片字节已由 image_storage_service 独立存盘，任务文件无需冗余保存 base64，
+    避免 image_tasks.json 膨胀导致的全量写盘阻塞前端轮询。
+    """
+    stripped: list[dict[str, Any]] = []
+    for item in data:
+        if not isinstance(item, dict):
+            continue
+        entry: dict[str, Any] = {}
+        url = item.get("url")
+        if isinstance(url, str) and url:
+            entry["url"] = url
+        revised = item.get("revised_prompt")
+        if isinstance(revised, str) and revised:
+            entry["revised_prompt"] = revised
+        if entry:
+            stripped.append(entry)
+    return stripped
+
+
 def _public_task(task: dict[str, Any]) -> dict[str, Any]:
     item = {
         "id": task.get("id"),
@@ -250,10 +271,12 @@ class ImageTaskService:
         started = time.time()
         self._update_task(key, status=TASK_STATUS_RUNNING, error="")
         # 创建进度回调，每个步骤完成后更新任务状态
+        # 进度仅用于实时展示，无需落盘（重启时未完成任务本就被标记为 error），
+        # 避免高频全量写盘阻塞前端轮询锁。
         def progress_callback(step: str) -> None:
             if step == "image_stream_resolve_start":
-                self._update_task(key, started_ts=time.time())
-            self._update_task(key, progress=step)
+                self._update_task(key, started_ts=time.time(), persist=False)
+            self._update_task(key, progress=step, persist=False)
         # 将进度回调添加到 payload 中（handler 会提取并传递给 ConversationRequest）
         payload_with_progress = {**payload, "progress_callback": progress_callback}
         try:
@@ -275,7 +298,8 @@ class ImageTaskService:
                 raise error
             usage = result.get("usage")
             duration_ms = int((time.time() - started) * 1000)
-            self._update_task(key, status=TASK_STATUS_SUCCESS, data=data, usage=usage, error="", duration_ms=duration_ms)
+            storage_data = _strip_b64_for_storage(data)
+            self._update_task(key, status=TASK_STATUS_SUCCESS, data=storage_data, usage=usage, error="", duration_ms=duration_ms)
             self._log_call(
                 identity,
                 mode,
@@ -346,15 +370,16 @@ class ImageTaskService:
         except Exception:
             pass
 
-    def _update_task(self, key: str, **updates: Any) -> None:
+    def _update_task(self, key: str, *, persist: bool = True, **updates: Any) -> None:
         with self._lock:
             task = self._tasks.get(key)
             if task is None:
                 return
             task.update(updates)
-            task["updated_at"] = _now_iso()
-            task["updated_ts"] = time.time()
-            self._save_locked()
+            if persist:
+                task["updated_at"] = _now_iso()
+                task["updated_ts"] = time.time()
+                self._save_locked()
 
     def _load_locked(self) -> dict[str, dict[str, Any]]:
         if not self.path.exists():
@@ -404,8 +429,17 @@ class ImageTaskService:
             tasks[_task_key(owner, task_id)] = task
         return tasks
 
+    # 仅用于内存实时查询、不应落盘的瞬态字段：
+    # progress 来自高频回调，started_ts 仅在 running 期间有意义，
+    # 落盘它们只会让 image_tasks.json 携带无用数据并放大写盘开销。
+    _TRANSIENT_FIELDS = frozenset({"progress", "started_ts"})
+
     def _save_locked(self) -> None:
-        items = sorted(self._tasks.values(), key=lambda item: str(item.get("updated_at") or ""), reverse=True)
+        items = sorted(
+            ({k: v for k, v in task.items() if k not in self._TRANSIENT_FIELDS} for task in self._tasks.values()),
+            key=lambda item: str(item.get("updated_at") or ""),
+            reverse=True,
+        )
         tmp_path = self.path.with_suffix(self.path.suffix + ".tmp")
         tmp_path.write_text(json.dumps({"tasks": items}, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         tmp_path.replace(self.path)
@@ -518,7 +552,8 @@ class ImageTaskService:
                 "",
                 int(time.time()),
             )["data"]
-            self._update_task(key, status=TASK_STATUS_SUCCESS, data=data, error="", duration_ms=int((time.time() - started) * 1000))
+            storage_data = _strip_b64_for_storage(data)
+            self._update_task(key, status=TASK_STATUS_SUCCESS, data=storage_data, error="", duration_ms=int((time.time() - started) * 1000))
             self._log_call(
                 identity,
                 mode,

@@ -213,8 +213,10 @@ def assistant_history_messages(messages: list[dict[str, Any]]) -> list[str]:
     return [str(item.get("content") or "") for item in messages if item.get("role") == "assistant" and item.get("content")]
 
 
-def build_image_prompt(prompt: str, size: str | None, quality: str = "auto") -> str:
+def build_image_prompt(prompt: str, size: str | None, quality: str = "auto", has_images: bool = False) -> str:
     hints = []
+    if has_images:
+        hints.append("请基于上传的参考图进行编辑修改，保留参考图的主要构图、人物和风格特征，仅根据提示词调整指定部分。")
     if size:
         hints.append(f"输出图片尺寸为 {size}。")
     if quality:
@@ -662,7 +664,7 @@ def conversation_events(
     image_model = is_supported_image_model(model)
     history_text = "" if image_model else assistant_history_text(normalized)
     history_messages = [] if image_model else assistant_history_messages(normalized)
-    final_prompt = prompt_with_global_system(build_image_prompt(prompt, size, quality)) if image_model else prompt
+    final_prompt = prompt_with_global_system(build_image_prompt(prompt, size, quality, has_images=bool(images))) if image_model else prompt
     payloads = backend.stream_conversation(
         messages=normalized,
         model=model,
