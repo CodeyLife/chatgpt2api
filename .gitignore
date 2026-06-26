@@ -12,6 +12,7 @@ web_dist
 data
 config.json
 edit
+.codex/
 
 docker-compose-local.yml
 
