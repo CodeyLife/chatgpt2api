@@ -317,11 +317,16 @@ class AccountService:
             if account is not None:
                 self._accounts[resolved] = account
                 self._save_accounts()
-        log_service.add(
-            LOG_TYPE_ACCOUNT,
+        self._log_account(
             "refresh_token 刷新 access_token 失败",
             {"source": event, "token": anonymize_token(access_token), "error": str(error or "")},
         )
+
+    def _log_account(self, summary: str, detail: dict[str, Any] | None = None, **data: Any) -> None:
+        """记录账号管理日志，受 account_management_log_enabled 开关控制（默认关闭）。"""
+        if not config.account_management_log_enabled:
+            return
+        log_service.add(LOG_TYPE_ACCOUNT, summary, detail, **data)
 
     def _recent_token_refresh_error(self, account: dict) -> bool:
         last_error_at = self._parse_time(account.get("last_token_refresh_error_at"))
@@ -430,8 +435,7 @@ class AccountService:
             self._save_accounts()
             self._image_slot_condition.notify_all()
 
-        log_service.add(
-            LOG_TYPE_ACCOUNT,
+        self._log_account(
             "refresh_token 已刷新 access_token",
             {"source": event, "token": anonymize_token(new_token), "rotated": rotated},
         )
@@ -500,8 +504,7 @@ class AccountService:
                     "status": "正常",
                 }, quiet=True)
 
-                log_service.add(
-                    LOG_TYPE_ACCOUNT,
+                self._log_account(
                     "更新账号",
                     {
                         "source": event,
@@ -517,8 +520,7 @@ class AccountService:
                 # 登录失败
                 error_type = result.get("error", "")
                 if error_type == "password_verify_failed_403" and isinstance(result.get("detail"), dict):
-                    log_service.add(
-                        LOG_TYPE_ACCOUNT,
+                    self._log_account(
                         "更新账号",
                         {
                             "source": event,
@@ -534,8 +536,7 @@ class AccountService:
                         # 账号已删除/停用 → 标记为禁用
                         self.update_account(access_token, {"status": "禁用", "quota": 0}, quiet=True)
                         account = self.get_account(access_token) or {}
-                        log_service.add(
-                            LOG_TYPE_ACCOUNT,
+                        self._log_account(
                             "账号已停用-标记禁用",
                             {
                                 "source": event,
@@ -552,8 +553,7 @@ class AccountService:
                         if progress_id:
                             self.update_relogin_progress(progress_id, access_token, "异常", error_type)
                 else:
-                    log_service.add(
-                        LOG_TYPE_ACCOUNT,
+                    self._log_account(
                         "更新账号",
                         {
                             "source": event,
@@ -569,8 +569,7 @@ class AccountService:
                     if progress_id:
                         self.update_relogin_progress(progress_id, access_token, "异常", error_type)
         except Exception as exc:
-            log_service.add(
-                LOG_TYPE_ACCOUNT,
+            self._log_account(
                 "更新账号",
                 {
                     "source": event,
@@ -1038,7 +1037,7 @@ class AccountService:
             return False
         removed = bool(self.delete_accounts([access_token])["removed"])
         if removed:
-            log_service.add(LOG_TYPE_ACCOUNT, "自动移除异常账号",
+            self._log_account("自动移除异常账号",
                             {"source": event, "token": anonymize_token(access_token)})
         elif access_token:
             self.update_account(access_token, {"status": "异常", "quota": 0}, quiet=quiet)
@@ -1168,7 +1167,7 @@ class AccountService:
                     self._accounts[access_token] = account
             self._save_accounts()
             items = [dict(item) for item in self._accounts.values()]
-            log_service.add(LOG_TYPE_ACCOUNT, f"新增 {added} 个账号，跳过 {skipped} 个",
+            self._log_account(f"新增 {added} 个账号，跳过 {skipped} 个",
                             {"added": added, "skipped": skipped})
         return {"added": added, "skipped": skipped, "items": items}
 
@@ -1192,7 +1191,7 @@ class AccountService:
                 else:
                     self._index = 0
                 self._save_accounts()
-                log_service.add(LOG_TYPE_ACCOUNT, f"删除 {removed} 个账号", {"removed": removed})
+                self._log_account(f"删除 {removed} 个账号", {"removed": removed})
             items = [dict(item) for item in self._accounts.values()]
         return {"removed": removed, "items": items}
 
@@ -1210,12 +1209,12 @@ class AccountService:
             if account.get("status") == "限流" and config.auto_remove_rate_limited_accounts:
                 self._accounts.pop(access_token, None)
                 self._save_accounts()
-                log_service.add(LOG_TYPE_ACCOUNT, "自动移除限流账号", {"token": anonymize_token(access_token)})
+                self._log_account("自动移除限流账号", {"token": anonymize_token(access_token)})
                 return None
             self._accounts[access_token] = account
             self._save_accounts()
             if not quiet:
-                log_service.add(LOG_TYPE_ACCOUNT, "更新账号",
+                self._log_account("更新账号",
                                 {"token": anonymize_token(access_token), "status": account.get("status")})
             return dict(account)
         return None
@@ -1273,8 +1272,7 @@ class AccountService:
                 self._accounts[access_token] = account
                 self._save_accounts()
             if should_defer:
-                log_service.add(
-                    LOG_TYPE_ACCOUNT,
+                self._log_account(
                     "暂缓标记异常账号",
                     {"source": event, "token": anonymize_token(access_token), "error": str(error or "")},
                 )
@@ -1310,7 +1308,7 @@ class AccountService:
             if account.get("status") == "限流" and config.auto_remove_rate_limited_accounts:
                 self._accounts.pop(access_token, None)
                 self._save_accounts()
-                log_service.add(LOG_TYPE_ACCOUNT, "自动移除限流账号", {"token": anonymize_token(access_token)})
+                self._log_account("自动移除限流账号", {"token": anonymize_token(access_token)})
                 return None
             self._accounts[access_token] = account
             self._save_accounts()
@@ -1329,12 +1327,14 @@ class AccountService:
         active_token = self.refresh_access_token(access_token, event=f"{event}:preflight") or access_token
         try:
             from services.openai_backend_api import InvalidAccessTokenError, OpenAIBackendAPI
-            result = OpenAIBackendAPI(active_token).get_user_info()
+            with OpenAIBackendAPI(active_token) as backend:
+                result = backend.get_user_info()
         except InvalidAccessTokenError as exc:
             refreshed_token = self.refresh_access_token(active_token, force=True, event=f"{event}:invalid_access_token")
             if refreshed_token and refreshed_token != active_token:
                 try:
-                    result = OpenAIBackendAPI(refreshed_token).get_user_info()
+                    with OpenAIBackendAPI(refreshed_token) as backend:
+                        result = backend.get_user_info()
                 except InvalidAccessTokenError as retry_exc:
                     if self._record_invalid_token_seen(
                         refreshed_token,
@@ -1369,6 +1369,7 @@ class AccountService:
                 "error": None,
                 "status_counts": {"正常": 0, "限流": 0, "异常": 0, "禁用": 0},
                 "total_quota": 0,
+                "created_at": time.time(),
             }
 
     def update_refresh_progress(self, progress_id: str, token: str) -> None:
@@ -1397,9 +1398,15 @@ class AccountService:
                 progress["error"] = error
 
     def get_refresh_progress(self, progress_id: str) -> dict | None:
-        """查询刷新进度。"""
+        """查询刷新进度。超过 30 分钟自动清理。"""
         with self._refresh_progress_lock:
             progress = self._refresh_progress.get(progress_id)
+            if progress is None:
+                return None
+            created_at = progress.get("created_at") or 0
+            if created_at and time.time() - created_at > 1800:
+                self._refresh_progress.pop(progress_id, None)
+                return None
             return dict(progress) if progress else None
 
     def clean_refresh_progress(self, progress_id: str) -> None:
@@ -1418,6 +1425,7 @@ class AccountService:
                 "done": False,
                 "error": None,
                 "results": [],
+                "created_at": time.time(),
             }
 
     def update_relogin_progress(self, progress_id: str, token: str, status: str, error: str | None = None) -> None:
@@ -1432,6 +1440,9 @@ class AccountService:
                 "status": status,
                 "error": error,
             })
+            # results 超过 500 条时只保留最后 500 条，避免大量账号重登时内存无界增长
+            if len(progress["results"]) > 500:
+                progress["results"] = progress["results"][-500:]
             if progress["processed"] >= progress["total"]:
                 progress["done"] = True
 
@@ -1447,9 +1458,15 @@ class AccountService:
                 progress["error"] = error
 
     def get_relogin_progress(self, progress_id: str) -> dict | None:
-        """查询重新登录进度。"""
+        """查询重新登录进度。超过 30 分钟自动清理。"""
         with self._relogin_progress_lock:
             progress = self._relogin_progress.get(progress_id)
+            if progress is None:
+                return None
+            created_at = progress.get("created_at") or 0
+            if created_at and time.time() - created_at > 1800:
+                self._relogin_progress.pop(progress_id, None)
+                return None
             return dict(progress) if progress else None
 
     def clean_relogin_progress(self, progress_id: str) -> None:
@@ -1565,6 +1582,8 @@ class AccountService:
         skipped = 0
         errors = []
 
+        # 收集需要重登的任务
+        relogin_tasks: list[tuple[str, str, str]] = []
         for token in access_tokens:
             account = self.get_account(token)
             if not account:
@@ -1581,14 +1600,20 @@ class AccountService:
                     self.update_relogin_progress(progress_id, token, "跳过", "无邮箱密码")
                 continue
 
-            # 在新线程中执行密码重新登录
-            t = Thread(
-                target=self._password_re_login_thread,
-                args=(token, email, password, "manual_relogin", progress_id),
-                daemon=True,
-            )
-            t.start()
-            relogined += 1
+            relogin_tasks.append((token, email, password))
+
+        # 用线程池执行，限制并发数（最多 8 个同时重登），避免大量账号同时重登导致内存尖峰
+        if relogin_tasks:
+            def _run_relogin_batch() -> None:
+                with ThreadPoolExecutor(max_workers=min(8, len(relogin_tasks))) as executor:
+                    for task_token, task_email, task_password in relogin_tasks:
+                        executor.submit(
+                            self._password_re_login_thread,
+                            task_token, task_email, task_password, "manual_relogin", progress_id,
+                        )
+            batch_thread = Thread(target=_run_relogin_batch, daemon=True)
+            batch_thread.start()
+        relogined = len(relogin_tasks)
 
         result = {
             "relogined": relogined,

@@ -82,7 +82,9 @@ class RegisterService:
 
     def get(self) -> dict:
         with self._lock:
-            snapshot = json.loads(json.dumps({**self._config, "logs": self._logs[-300:]}, ensure_ascii=False))
+            # logs 是只读追加列表，浅拷贝即可（条目写入后不会被修改）
+            # config 需要深拷贝，因为 _redact_outlook_pools 会修改嵌套 dict
+            snapshot = {**json.loads(json.dumps(self._config, ensure_ascii=False)), "logs": list(self._logs[-300:])}
         self._redact_outlook_pools(snapshot)
         return snapshot
 

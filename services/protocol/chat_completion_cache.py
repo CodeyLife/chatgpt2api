@@ -165,14 +165,14 @@ class ChatCompletionCache:
 
         expires_at = time.time() + int(settings.get("ttl_seconds") or 0)
         with self._lock:
-            self._entries[key] = CacheEntry(expires_at=expires_at, value=self._copy(value))
+            self._entries[key] = CacheEntry(expires_at=expires_at, value=value)
             self._prune_locked(time.time(), max_entries)
             self._inflight.pop(key, None)
         with inflight.condition:
-            inflight.value = self._copy(value)
+            inflight.value = value
             inflight.done = True
             inflight.condition.notify_all()
-        return value
+        return self._copy(value)
 
     def get_or_compute_stream(self, key: str, compute: Callable[[], Iterable[dict[str, Any]]]) -> Iterator[dict[str, Any]]:
         settings = self._settings()
@@ -213,7 +213,7 @@ class ChatCompletionCache:
         chunks: list[dict[str, Any]] = []
         try:
             for chunk in compute():
-                chunks.append(self._copy(chunk))
+                chunks.append(chunk)
                 yield chunk
         except BaseException as exc:
             with self._lock:
@@ -226,11 +226,11 @@ class ChatCompletionCache:
 
         expires_at = time.time() + int(settings.get("ttl_seconds") or 0)
         with self._lock:
-            self._entries[key] = CacheEntry(expires_at=expires_at, value=self._copy(chunks))
+            self._entries[key] = CacheEntry(expires_at=expires_at, value=chunks)
             self._prune_locked(time.time(), max_entries)
             self._inflight.pop(key, None)
         with inflight.condition:
-            inflight.value = self._copy(chunks)
+            inflight.value = chunks
             inflight.done = True
             inflight.condition.notify_all()
 

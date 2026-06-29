@@ -1,6 +1,6 @@
 services:
   app:
-    image: registry.cn-hangzhou.aliyuncs.com/yjj18/chatgpt2api:latest
+    image: yjj5918/chatgpt2api:latest
     container_name: chatgpt2api
     restart: unless-stopped
     ports:
@@ -8,6 +8,8 @@ services:
     volumes:
       - ./data:/app/data
       - ./config.json:/app/config.json
+    mem_limit: 1g
+    mem_reservation: 512m
     environment:
       # 存储后端配置 (可选值: json, sqlite, postgres, git)
        - STORAGE_BACKEND=json

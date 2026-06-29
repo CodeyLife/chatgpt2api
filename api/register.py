@@ -70,7 +70,7 @@ def create_router() -> APIRouter:
                 if payload != last:
                     last = payload
                     yield f"data: {payload}\n\n"
-                await asyncio.sleep(0.5)
+                await asyncio.sleep(1)
 
         return StreamingResponse(stream(), media_type="text/event-stream")
 

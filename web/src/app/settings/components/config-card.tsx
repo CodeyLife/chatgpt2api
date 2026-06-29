@@ -32,6 +32,7 @@ export function ConfigCard() {
   const setAutoRemoveInvalidAccounts = useSettingsStore((state) => state.setAutoRemoveInvalidAccounts);
   const setAutoRemoveRateLimitedAccounts = useSettingsStore((state) => state.setAutoRemoveRateLimitedAccounts);
   const setAutoReloginAfterRefresh = useSettingsStore((state) => state.setAutoReloginAfterRefresh);
+  const setAccountManagementLogEnabled = useSettingsStore((state) => state.setAccountManagementLogEnabled);
   const setLogLevel = useSettingsStore((state) => state.setLogLevel);
   const setProxy = useSettingsStore((state) => state.setProxy);
   const setBaseUrl = useSettingsStore((state) => state.setBaseUrl);
@@ -227,7 +228,16 @@ export function ConfigCard() {
               </label>
               <p className="text-xs text-stone-500">开启后刷新时自动尝试密码登录恢复账号。</p>
             </div>
-            <div className="flex-1" aria-hidden="true" />
+            <div className="flex-1 space-y-2">
+              <label className="flex items-center gap-3 rounded-xl border border-stone-200 bg-white px-4 py-3 text-sm text-stone-700">
+                <Checkbox
+                  checked={Boolean(config?.account_management_log_enabled)}
+                  onCheckedChange={(checked) => setAccountManagementLogEnabled(Boolean(checked))}
+                />
+                账号管理写入日志
+              </label>
+              <p className="text-xs text-stone-500">开启后账号新增、删除、更新、刷新等操作会写入日志。默认关闭。</p>
+            </div>
           </div>
           <label className="flex items-center gap-3 rounded-xl border border-stone-200 bg-white px-4 py-3 text-sm text-stone-700">
             <Checkbox

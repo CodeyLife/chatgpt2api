@@ -4,7 +4,7 @@ from urllib.parse import quote
 
 from fastapi import APIRouter, Header, HTTPException, Query, Request
 from fastapi.concurrency import run_in_threadpool
-from fastapi.responses import HTMLResponse, Response, StreamingResponse
+from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel, ConfigDict
 
 from api.support import require_admin, require_identity, resolve_image_base_url
@@ -56,6 +56,23 @@ class LogDeleteRequest(BaseModel):
     ids: list[str] = []
 class BackupDeleteRequest(BaseModel):
     key: str = ""
+
+
+def _health_payload(app_version: str) -> dict[str, object]:
+    from services.account_service import account_service as acct_svc
+
+    stats = acct_svc.get_stats()
+    storage = config.get_storage_backend()
+    storage_health = storage.health_check()
+    healthy = stats["active"] > 0 or stats["unlimited_quota_count"] > 0
+    return {
+        "status": "ok" if healthy else "degraded",
+        "healthy": healthy,
+        "version": app_version,
+        "storage": {"backend": storage.get_backend_info(), "health": storage_health},
+        "proxy_runtime": proxy_settings.get_runtime_status(),
+        "accounts": stats,
+    }
 
 
 def create_router(app_version: str) -> APIRouter:
@@ -293,24 +310,22 @@ def create_router(app_version: str) -> APIRouter:
         require_admin(authorization)
         return await run_in_threadpool(delete_to_target, target_free_mb, dry_run)
 
+    @router.head("/api/health", include_in_schema=False)
+    @router.head("/health", include_in_schema=False)
+    async def health_head():
+        return Response(status_code=200)
+
+    @router.get("/api/health")
+    async def health_json():
+        return JSONResponse(_health_payload(app_version))
+
     @router.get("/health", response_model=None)
     async def health_dashboard(format: str = Query(default="html")):
-        from services.account_service import account_service as acct_svc
-        stats = acct_svc.get_stats()
-        storage = config.get_storage_backend()
-        storage_health = storage.health_check()
-        healthy = stats["active"] > 0 or stats["unlimited_quota_count"] > 0
-
-        stats_json = {
-            "status": "ok" if healthy else "degraded",
-            "healthy": healthy,
-            "version": app_version,
-            "storage": {"backend": storage.get_backend_info(), "health": storage_health},
-            "proxy_runtime": proxy_settings.get_runtime_status(),
-            "accounts": stats,
-        }
+        stats_json = _health_payload(app_version)
         if format == "json":
             return stats_json
+        healthy = bool(stats_json["healthy"])
+        stats = stats_json["accounts"]
         return HTMLResponse(f"""<!DOCTYPE html>
 <html lang="zh">
 <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">

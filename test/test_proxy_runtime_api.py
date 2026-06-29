@@ -176,6 +176,24 @@ class ProxyRuntimeApiTests(unittest.TestCase):
         self.assertEqual(payload["version"], "9.9.9-test")
         self.assertEqual(payload["proxy_runtime"]["clearance_mode"], "flaresolverr")
 
+    def test_api_health_returns_json_for_deployment_checks(self) -> None:
+        response = self.client.get("/api/health")
+
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.headers["content-type"], "application/json")
+        payload = response.json()
+        self.assertEqual(payload["status"], "ok")
+        self.assertTrue(payload["healthy"])
+
+    def test_health_head_supports_probe_requests(self) -> None:
+        health_response = self.client.head("/health")
+        api_health_response = self.client.head("/api/health")
+
+        self.assertEqual(health_response.status_code, 200)
+        self.assertEqual(api_health_response.status_code, 200)
+        self.assertEqual(health_response.text, "")
+        self.assertEqual(api_health_response.text, "")
+
 
 if __name__ == "__main__":
     unittest.main()

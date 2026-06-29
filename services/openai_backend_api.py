@@ -201,6 +201,19 @@ class OpenAIBackendAPI:
         if self.access_token:
             self.session.headers["Authorization"] = f"Bearer {self.access_token}"
 
+    def close(self) -> None:
+        """关闭底层 HTTP Session，释放连接池与 TLS 资源。"""
+        try:
+            self.session.close()
+        except Exception:
+            pass
+
+    def __enter__(self) -> "OpenAIBackendAPI":
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+        self.close()
+
     def _build_fp(self) -> Dict[str, str]:
         account = self.account
         raw_fp = account.get("fp")
@@ -1954,11 +1967,16 @@ class OpenAIBackendAPI:
         return ""
 
     def _walk_search_dicts(self, payload: Any) -> list[Dict[str, Any]]:
-        if isinstance(payload, dict):
-            return [payload, *(item for value in payload.values() for item in self._walk_search_dicts(value))]
-        if isinstance(payload, list):
-            return [item for value in payload for item in self._walk_search_dicts(value)]
-        return []
+        result: list[Dict[str, Any]] = []
+        stack = [payload]
+        while stack:
+            current = stack.pop()
+            if isinstance(current, dict):
+                result.append(current)
+                stack.extend(current.values())
+            elif isinstance(current, list):
+                stack.extend(current)
+        return result
 
     def _clean_search_url(self, value: Any) -> str:
         return str(value or "").strip().rstrip(".,;，。；")
@@ -2486,11 +2504,14 @@ class OpenAIBackendAPI:
 
     def download_image_bytes(self, urls: list[str]) -> list[bytes]:
         images = []
+        seen_urls: set[str] = set()
         for url in urls:
+            if url in seen_urls:
+                continue
+            seen_urls.add(url)
             response = self.session.get(url, timeout=120)
             ensure_ok(response, "image_download")
-            if response.content not in images:
-                images.append(response.content)
+            images.append(response.content)
         return images
 
     def stream_conversation(

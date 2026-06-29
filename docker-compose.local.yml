@@ -10,6 +10,8 @@ services:
     volumes:
       - ./data:/app/data
       - ./config.json:/app/config.json
+    mem_limit: 1g
+    mem_reservation: 512m
     environment:
       STORAGE_BACKEND: sqlite
       DATABASE_URL: sqlite:////app/data/accounts.db

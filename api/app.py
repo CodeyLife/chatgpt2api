@@ -5,7 +5,7 @@ from threading import Event
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 
 from api import accounts, ai, image_tasks, register, system
 from api.errors import install_exception_handlers
@@ -47,6 +47,10 @@ def create_app() -> FastAPI:
     app.include_router(image_tasks.create_router())
     app.include_router(register.create_router())
     app.include_router(system.create_router(app_version))
+
+    @app.head("/", include_in_schema=False)
+    async def root_head():
+        return Response(status_code=200)
 
     @app.get("/{full_path:path}", include_in_schema=False)
     async def serve_web(full_path: str):

@@ -28,19 +28,21 @@ WORKDIR /app
 
 # 安装系统依赖
 # - git: Git 存储后端需要
-# - libpq-dev: PostgreSQL 客户端库
-# - gcc: 编译 psycopg2-binary 需要
+# - libpq-dev: psycopg2-binary 运行时需要
+# - openssl: TLS 需要
+# 注: psycopg2-binary 是预编译 wheel，无需 gcc
 RUN apt-get update && apt-get install -y --no-install-recommends \
     git \
     libpq-dev \
-    gcc \
     openssl \
     && rm -rf /var/lib/apt/lists/*
 
 RUN pip install --no-cache-dir uv
 
 COPY pyproject.toml uv.lock ./
-RUN uv sync --frozen --no-dev --no-install-project
+# 清除 uv 缓存避免 104MB 缓存进入镜像层
+RUN uv sync --frozen --no-dev --no-install-project \
+    && rm -rf /root/.cache/uv
 
 COPY main.py ./
 COPY config.json ./
