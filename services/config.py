@@ -455,6 +455,23 @@ class ConfigStore:
             return 2.0
 
     @property
+    def image_total_timeout_secs(self) -> int:
+        """图片生成请求的总耗时上限（秒）。超过此时间立即失败，不再重试。
+        包含所有重试和轮询时间，是硬性上限。"""
+        try:
+            return max(30, int(self.data.get("image_total_timeout_secs", 300)))
+        except (TypeError, ValueError):
+            return 300
+
+    @property
+    def image_timeout_retry_secs(self) -> int:
+        """单个账号轮询超时后，续轮询的额外等待时间（秒）。"""
+        try:
+            return max(1, int(self.data.get("image_timeout_retry_secs", 30)))
+        except (TypeError, ValueError):
+            return 30
+
+    @property
     def auto_remove_invalid_accounts(self) -> bool:
         value = self.data.get("auto_remove_invalid_accounts", False)
         if isinstance(value, str):
@@ -553,6 +570,8 @@ class ConfigStore:
         data["image_poll_timeout_secs"] = self.image_poll_timeout_secs
         data["image_poll_interval_secs"] = self.image_poll_interval_secs
         data["image_poll_initial_wait_secs"] = self.image_poll_initial_wait_secs
+        data["image_total_timeout_secs"] = self.image_total_timeout_secs
+        data["image_timeout_retry_secs"] = self.image_timeout_retry_secs
         data["image_account_concurrency"] = self.image_account_concurrency
         data["image_parallel_generation"] = self.image_parallel_generation
         data["auto_remove_invalid_accounts"] = self.auto_remove_invalid_accounts

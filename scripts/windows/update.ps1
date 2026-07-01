@@ -129,12 +129,20 @@ Invoke-Nssm start $ServiceName
 Start-Sleep -Seconds 3
 
 # ====== 8. Verify ======
-# Read actual port from nssm service environment (set during deploy)
+# Read actual port from service registry (nssm stores AppEnvironmentExtra here)
 $port = $env:CHATGPT2API_PORT
 if (-not $port) {
-    $envOut = cmd /c "`"$NssmExe`" dump $ServiceName" 2>&1
-    $m = [regex]::Match($envOut, 'CHATGPT2API_PORT=(\d+)')
-    if ($m.Success) { $port = $m.Groups[1].Value }
+    try {
+        $regKey = "HKLM:\SYSTEM\CurrentControlSet\Services\$ServiceName\Parameters"
+        $props = Get-ItemProperty -Path $regKey -ErrorAction Stop
+        $envList = $props.AppEnvironmentExtra
+        if (-not $envList) { $envList = $props.Environment }
+        if ($envList) {
+            foreach ($e in $envList) {
+                if ($e -match 'CHATGPT2API_PORT=(\d+)') { $port = $Matches[1]; break }
+            }
+        }
+    } catch { }
 }
 if (-not $port) { $port = "8000" }
 Write-Host ""

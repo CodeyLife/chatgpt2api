@@ -41,6 +41,26 @@ class ImageContentPolicyError(RuntimeError):
     pass
 
 
+def is_image_fatal_network_error(message: str) -> bool:
+    """Return True for network errors that should fail fast during image polling."""
+    text = str(message or "").lower()
+    return (
+        "curl: (92)" in text
+        or "curl: (56)" in text
+        or "curl: (95)" in text
+        or "http/2 stream" in text
+        or "http/2 protocol error" in text
+        or "stream error" in text
+        or "rst_stream" in text
+        or "internal_error" in text
+        or "curl: (35)" in text
+        or "tls connect error" in text
+        or "connection reset by peer" in text
+        or "connection aborted" in text
+        or "remote disconnected" in text
+    )
+
+
 @dataclass
 class ChatRequirements:
     """保存一次对话请求所需的 sentinel token。"""
@@ -753,6 +773,7 @@ class OpenAIBackendAPI:
             images: list[str] | None = None,
             size: str | None = None,
             quality: str = "auto",
+            timeout_secs: float = 1200.0,
     ) -> Iterator[Dict[str, Any]]:
         if not self.access_token:
             raise RuntimeError("access_token is required for codex image endpoints")
@@ -789,7 +810,7 @@ class OpenAIBackendAPI:
             "event": "codex_responses_request_debug",
             "url": self.base_url + path,
             "transport": "urllib.request",
-            "timeout_secs": 1200,
+            "timeout_secs": timeout_secs,
             "account_email": str(account.get("email") or "").strip(),
             "source_type": str(account.get("source_type") or "").strip(),
             "account_type": str(account.get("type") or "").strip(),
@@ -822,7 +843,7 @@ class OpenAIBackendAPI:
             },
         })
         try:
-            with urllib.request.urlopen(request, timeout=1200) as raw:
+            with urllib.request.urlopen(request, timeout=timeout_secs) as raw:
                 yield from self._iter_codex_response_events(raw)
         except urllib.error.HTTPError as error:
             body_text = error.read().decode("utf-8", "replace")
@@ -942,7 +963,8 @@ class OpenAIBackendAPI:
         }
 
     def _start_image_generation(self, prompt: str, requirements: ChatRequirements, conduit_token: str, model: str,
-                                references: Optional[list[Dict[str, Any]]] = None) -> requests.Response:
+                                references: Optional[list[Dict[str, Any]]] = None,
+                                timeout_secs: float = 300.0) -> requests.Response:
         """启动图片生成或编辑的 SSE 请求。"""
         references = references or []
         parts = [{
@@ -1008,7 +1030,7 @@ class OpenAIBackendAPI:
             self.base_url + path,
             headers=self._image_headers(path, requirements, conduit_token, "text/event-stream"),
             json=payload,
-            timeout=300,
+            timeout=timeout_secs,
             stream=True,
         )
         ensure_ok(response, path)
@@ -2111,6 +2133,8 @@ class OpenAIBackendAPI:
         last_hit_key: tuple[tuple[str, ...], tuple[str, ...]] | None = (
             (tuple(file_ids), tuple(sediment_ids)) if has_initial_ids else None
         )
+        network_error_count = 0
+        MAX_NETWORK_ERRORS = 2  # HTTP/2 流错误等致命网络错误最多重试 2 次
         logger.info({
             "event": "image_poll_start",
             "conversation_id": conversation_id,
@@ -2194,6 +2218,36 @@ class OpenAIBackendAPI:
                     break
                 raise
             except requests.exceptions.RequestException as exc:
+                # HTTP/2 流错误（curl 92/56/95）和 TLS 连接错误：快速重试 2 次后立即抛出，不耗尽 timeout_secs
+                error_str = str(exc)
+                if is_image_fatal_network_error(error_str):
+                    network_error_count += 1
+                    if network_error_count <= MAX_NETWORK_ERRORS:
+                        # 短退避：2s, 4s（不使用 _retry_sleep 的指数退避，避免拖长）
+                        short_backoff = min(2.0 * network_error_count, max(0.0, _remaining()))
+                        logger.warning({
+                            "event": "image_poll_network_error_fast_retry",
+                            "conversation_id": conversation_id,
+                            "attempt": attempt,
+                            "network_error_count": network_error_count,
+                            "sleep_secs": round(short_backoff, 2),
+                            "error": error_str[:200],
+                        })
+                        if short_backoff > 0:
+                            time.sleep(short_backoff)
+                            continue
+                    # 重试次数用尽，立即抛出（不耗尽 timeout_secs）
+                    logger.warning({
+                        "event": "image_poll_network_error_exhausted",
+                        "conversation_id": conversation_id,
+                        "attempt": attempt,
+                        "network_error_count": network_error_count,
+                        "error": error_str[:200],
+                    })
+                    raise ImagePollTimeoutError(
+                        f"网络错误重试 {MAX_NETWORK_ERRORS} 次后仍失败: {error_str[:200]}"
+                    )
+                # 其他网络错误：保持原有 _retry_sleep 逻辑
                 if _retry_sleep("network", None, str(exc), None):
                     continue
                 break
@@ -2522,10 +2576,11 @@ class OpenAIBackendAPI:
             images: Optional[list[str]] = None,
             system_hints: Optional[list[str]] = None,
             thinking_effort: str = "",
+            timeout_secs: float | None = None,
     ) -> Iterator[str]:
         system_hints = system_hints or []
         if "picture_v2" in system_hints:
-            yield from self._stream_picture_conversation(prompt, model, images or [])
+            yield from self._stream_picture_conversation(prompt, model, images or [], timeout_secs=timeout_secs or 300.0)
             return
 
         normalized = messages or [{"role": "user", "content": prompt}]
@@ -2537,7 +2592,7 @@ class OpenAIBackendAPI:
             self.base_url + path,
             headers=self._conversation_headers(path, requirements),
             json=payload,
-            timeout=300,
+            timeout=timeout_secs or 300,
             stream=True,
         )
         ensure_ok(response, path)
@@ -2559,6 +2614,7 @@ class OpenAIBackendAPI:
             prompt: str,
             model: str,
             images: list[str],
+            timeout_secs: float = 300.0,
     ) -> Iterator[str]:
         if not self.access_token:
             raise RuntimeError("access_token is required for image endpoints")
@@ -2571,7 +2627,7 @@ class OpenAIBackendAPI:
         self._report_progress("preparing_conversation")
         conduit_token = self._prepare_image_conversation(prompt, requirements, model)
         self._report_progress("starting_generation")
-        response = self._start_image_generation(prompt, requirements, conduit_token, model, references)
+        response = self._start_image_generation(prompt, requirements, conduit_token, model, references, timeout_secs)
         self._report_progress("generating")
         try:
             yield from iter_sse_payloads(response)
