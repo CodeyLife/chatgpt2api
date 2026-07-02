@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import threading
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote
@@ -12,7 +13,6 @@ from services.config import DATA_DIR
 from services.content_filter import request_text
 from services.log_service import LOG_TYPE_CALL, log_service
 from services.openai_backend_api import EDITABLE_FILE_MODEL, OpenAIBackendAPI
-from services.timezone import beijing_from_timestamp_string, beijing_now_string
 from utils.helper import new_uuid
 
 TASK_STATUS_QUEUED = "queued"
@@ -26,7 +26,7 @@ EDITABLE_FILE_TASKS_PATH = DATA_DIR / "editable_file_tasks.json"
 
 
 def _now_iso() -> str:
-    return beijing_now_string()
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
 
 def _clean(value: object, default: str = "") -> str:
@@ -150,7 +150,7 @@ class EditableFileTaskService:
             self._update_task(key, status=TASK_STATUS_ERROR, error=error, account_email=account_email, ended_ts=time.time())
             self._log_call(identity, kind, started, request_text(prompt), status="failed", error=error, account_email=account_email)
         finally:
-            if backend:
+            if backend is not None:
                 backend.close()
 
     def public_file_path(self, relative_path: str) -> Path:
@@ -238,7 +238,7 @@ class EditableFileTaskService:
             "role": identity.get("role"),
             "endpoint": f"/v1/{kind}/generations",
             "model": EDITABLE_FILE_MODEL,
-            "started_at": beijing_from_timestamp_string(started),
+            "started_at": datetime.fromtimestamp(started).strftime("%Y-%m-%d %H:%M:%S"),
             "ended_at": _now_iso(),
             "duration_ms": int((time.time() - started) * 1000),
             "status": status,

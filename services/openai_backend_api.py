@@ -223,16 +223,25 @@ class OpenAIBackendAPI:
 
     def close(self) -> None:
         """关闭底层 HTTP Session，释放连接池与 TLS 资源。"""
-        try:
-            self.session.close()
-        except Exception:
-            pass
+        if getattr(self, "_closed", False):
+            return
+        self._closed = True
+        session = getattr(self, "session", None)
+        if session:
+            try:
+                session.close()
+            except Exception:
+                pass
 
-    def __enter__(self) -> "OpenAIBackendAPI":
+    def __del__(self):
+        self.close()
+
+    def __enter__(self):
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+    def __exit__(self, *args):
         self.close()
+        return False
 
     def _build_fp(self) -> Dict[str, str]:
         account = self.account
@@ -1041,6 +1050,24 @@ class OpenAIBackendAPI:
         path = f"/backend-api/conversation/{conversation_id}"
         response = self.session.get(self.base_url + path, headers=self._headers(path, {"Accept": "application/json"}),
                                     timeout=60)
+        ensure_ok(response, path)
+        return response.json()
+
+    def delete_conversation(self, conversation_id: str) -> Dict[str, Any]:
+        """删除本地对话记录。"""
+        path = f"/backend-api/conversation/{conversation_id}"
+        headers = self._headers(path, {
+            "Accept": "*/*",
+            "Content-Type": "application/json",
+            "Referer": f"{self.base_url}/c/{conversation_id}",
+            "X-OpenAI-Target-Route": "/backend-api/conversation/{conversation_id}",
+        })
+        response = self.session.patch(
+            self.base_url + path,
+            headers=headers,
+            json={"is_visible": False},
+            timeout=60,
+        )
         ensure_ok(response, path)
         return response.json()
 

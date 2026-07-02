@@ -41,6 +41,19 @@ def _default_config() -> dict:
     return {**openai_register.config, "mode": "total", "target_quota": 100, "target_available": 10, "check_interval": 5, "register_interval_min": 2.0, "register_interval_max": 6.0, "enabled": False, "stats": {"success": 0, "fail": 0, "done": 0, "running": 0, "threads": openai_register.config["threads"], "elapsed_seconds": 0, "avg_seconds": 0, "success_rate": 0, "current_quota": 0, "current_available": 0}}
 
 
+def _safe_bool(value: object, fallback: bool) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return fallback
+    text = str(value).strip().lower()
+    if text in {"1", "true", "yes", "on"}:
+        return True
+    if text in {"0", "false", "no", "off"}:
+        return False
+    return fallback
+
+
 def _normalize(raw: dict) -> dict:
     cfg = _default_config()
     cfg.update({k: v for k, v in raw.items() if k not in {"stats", "logs"}})
@@ -53,8 +66,11 @@ def _normalize(raw: dict) -> dict:
     cfg["register_interval_min"] = max(0.0, float(cfg.get("register_interval_min") or 2.0))
     cfg["register_interval_max"] = max(cfg["register_interval_min"], float(cfg.get("register_interval_max") or 6.0))
     cfg["proxy"] = str(cfg.get("proxy") or "").strip()
-    if isinstance(cfg.get("mail"), dict):
-        cfg["mail"].pop("proxy", None)
+    default_mail = _default_config()["mail"] if isinstance(_default_config().get("mail"), dict) else {}
+    mail = cfg.get("mail") if isinstance(cfg.get("mail"), dict) else {}
+    cfg["mail"] = {**default_mail, **mail}
+    cfg["mail"]["api_use_register_proxy"] = _safe_bool(cfg["mail"].get("api_use_register_proxy"), True)
+    cfg["mail"].pop("proxy", None)
     cfg["enabled"] = bool(cfg.get("enabled"))
     stats = {**_default_config()["stats"], **(raw.get("stats") if isinstance(raw.get("stats"), dict) else {}),
              "threads": cfg["threads"]}

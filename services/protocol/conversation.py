@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import json
 import re
+import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
@@ -739,8 +740,9 @@ def stream_text_deltas(backend: OpenAIBackendAPI, request: ConversationRequest) 
                 raise RuntimeError("no available text account")
             if token:
                 attempted_tokens.add(token)
-            active_backend = OpenAIBackendAPI(access_token=token)
+            active_backend = None
             try:
+                active_backend = OpenAIBackendAPI(access_token=token)
                 try:
                     for event in conversation_events(
                         active_backend,
@@ -770,7 +772,8 @@ def stream_text_deltas(backend: OpenAIBackendAPI, request: ConversationRequest) 
                             continue
                     raise
             finally:
-                active_backend.close()
+                if active_backend is not None:
+                    active_backend.close()
     finally:
         # 接管外部传入 backend 的资源释放：所有调用方（text_backend()、MessageRequest.backend）
         # 创建后不再持有引用，由本函数统一 close
@@ -828,6 +831,24 @@ def _get_detailed_error_from_tasks(
             "error": str(exc),
         })
         return ""
+
+
+def _remove_image_conversation_later(backend: OpenAIBackendAPI, conversation_id: str) -> None:
+    if not config.image_remove_conversation_after_result or not conversation_id:
+        return
+
+    def _run() -> None:
+        try:
+            backend.delete_conversation(conversation_id)
+            logger.info({"event": "image_conversation_removed", "conversation_id": conversation_id})
+        except Exception as exc:
+            logger.warning({
+                "event": "image_conversation_remove_failed",
+                "conversation_id": conversation_id,
+                "error": str(exc),
+            })
+
+    threading.Thread(target=_run, name=f"remove-image-conversation-{conversation_id}", daemon=True).start()
 
 
 def stream_image_outputs(
@@ -1009,6 +1030,7 @@ def stream_image_outputs(
             int(time.time()),
         )["data"]
         if data:
+            _remove_image_conversation_later(backend, conversation_id)
             yield ImageOutput(kind="result", model=request.model, index=index, total=total, data=data, conversation_id=conversation_id)
         return
 
@@ -1109,6 +1131,7 @@ def stream_image_outputs(
                         int(time.time()),
                     )["data"]
                     if data:
+                        _remove_image_conversation_later(backend, conversation_id)
                         yield ImageOutput(kind="result", model=request.model, index=index, total=total, data=data, conversation_id=conversation_id)
                         return
         elif is_text_reply:
@@ -1224,6 +1247,7 @@ def stream_image_outputs(
                     int(time.time()),
                 )["data"]
                 if data:
+                    _remove_image_conversation_later(backend, conversation_id)
                     yield ImageOutput(kind="result", model=request.model, index=index, total=total, data=data, conversation_id=conversation_id)
                     return
         
@@ -1542,7 +1566,7 @@ def _generate_single_image(
                     continue
             raise ImageGenerationError(image_stream_error_message(last_error), account_email=account_email, conversation_id="") from exc
         finally:
-            if backend:
+            if backend is not None:
                 backend.close()
 
 
