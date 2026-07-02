@@ -20,6 +20,8 @@ class RegisterConfigRequest(BaseModel):
     target_quota: int | None = None
     target_available: int | None = None
     check_interval: int | None = None
+    register_interval_min: float | None = None
+    register_interval_max: float | None = None
 
 
 class OutlookPoolResetRequest(BaseModel):

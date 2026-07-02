@@ -1,0 +1,831 @@
+{
+  "entry_count": 5736,
+  "total_uncompressed": 850433776,
+  "total_compressed_members": 664657673,
+  "dex": [
+    {
+      "name": "classes5.dex",
+      "size": 69976,
+      "compressed": 28799
+    },
+    {
+      "name": "classes3.dex",
+      "size": 622220,
+      "compressed": 284241
+    },
+    {
+      "name": "classes4.dex",
+      "size": 6640936,
+      "compressed": 2459445
+    },
+    {
+      "name": "classes2.dex",
+      "size": 7877716,
+      "compressed": 3233436
+    },
+    {
+      "name": "classes.dex",
+      "size": 10133984,
+      "compressed": 3623502
+    }
+  ],
+  "native_libs": [
+    {
+      "name": "lib/armeabi-v7a/libpns-2.13.5-LogOnlineStandardCuumRelease_alijtca_plus.so",
+      "size": 558096,
+      "compressed": 206296
+    },
+    {
+      "name": "lib/armeabi-v7a/libalicomphonenumberauthsdk_core.so",
+      "size": 9648,
+      "compressed": 4822
+    },
+    {
+      "name": "lib/armeabi-v7a/libpl_droidsonroids_gif.so",
+      "size": 46812,
+      "compressed": 24006
+    },
+    {
+      "name": "lib/armeabi-v7a/libtapsdkcore.so",
+      "size": 2782624,
+      "compressed": 1363146
+    },
+    {
+      "name": "lib/armeabi-v7a/libthemis.so",
+      "size": 779296,
+      "compressed": 397479
+    },
+    {
+      "name": "lib/armeabi-v7a/libnative-lib.so",
+      "size": 712328,
+      "compressed": 456498
+    },
+    {
+      "name": "lib/armeabi-v7a/lib_burst_generated.so",
+      "size": 114700,
+      "compressed": 47704
+    },
+    {
+      "name": "lib/armeabi-v7a/libCtaApiLib.so",
+      "size": 284544,
+      "compressed": 141660
+    },
+    {
+      "name": "lib/armeabi-v7a/libcrypto.so",
+      "size": 1922240,
+      "compressed": 800559
+    },
+    {
+      "name": "lib/armeabi-v7a/libdvstat.so",
+      "size": 1000560,
+      "compressed": 303229
+    },
+    {
+      "name": "lib/armeabi-v7a/libbeaconid.so",
+      "size": 85980,
+      "compressed": 48658
+    },
+    {
+      "name": "lib/armeabi-v7a/libfmod.so",
+      "size": 994000,
+      "compressed": 536328
+    },
+    {
+      "name": "lib/armeabi-v7a/libgmesdk.so",
+      "size": 4208168,
+      "compressed": 2628261
+    },
+    {
+      "name": "lib/armeabi-v7a/libfmodstudio.so",
+      "size": 734828,
+      "compressed": 278376
+    },
+    {
+      "name": "lib/armeabi-v7a/libgvraudio.so",
+      "size": 346112,
+      "compressed": 186805
+    },
+    {
+      "name": "lib/armeabi-v7a/libmain.so",
+      "size": 8592,
+      "compressed": 4838
+    },
+    {
+      "name": "lib/armeabi-v7a/libqmp.so",
+      "size": 129304,
+      "compressed": 78150
+    },
+    {
+      "name": "lib/armeabi-v7a/libresonanceaudio.so",
+      "size": 531956,
+      "compressed": 283892
+    },
+    {
+      "name": "lib/armeabi-v7a/libsilk.so",
+      "size": 159760,
+      "compressed": 108018
+    },
+    {
+      "name": "lib/armeabi-v7a/libssl.so",
+      "size": 405576,
+      "compressed": 173668
+    },
+    {
+      "name": "lib/armeabi-v7a/libsytool.so",
+      "size": 522100,
+      "compressed": 202583
+    },
+    {
+      "name": "lib/armeabi-v7a/libslua.so",
+      "size": 461040,
+      "compressed": 247876
+    },
+    {
+      "name": "lib/armeabi-v7a/libtraeimp.so",
+      "size": 2514996,
+      "compressed": 1408650
+    },
+    {
+      "name": "lib/armeabi-v7a/libtxffmpeg.so",
+      "size": 1280372,
+      "compressed": 781326
+    },
+    {
+      "name": "lib/armeabi-v7a/libtxsoundtouch.so",
+      "size": 121880,
+      "compressed": 56505
+    },
+    {
+      "name": "lib/armeabi-v7a/libxcrash.so",
+      "size": 56516,
+      "compressed": 32137
+    },
+    {
+      "name": "lib/armeabi-v7a/libil2cpp.so",
+      "size": 68394632,
+      "compressed": 21236303
+    },
+    {
+      "name": "lib/armeabi-v7a/libxcrash_dumper.so",
+      "size": 80900,
+      "compressed": 49794
+    },
+    {
+      "name": "lib/armeabi-v7a/libunity.so",
+      "size": 19111560,
+      "compressed": 10001276
+    },
+    {
+      "name": "lib/armeabi-v7a/libFairGuard.so",
+      "size": 2883056,
+      "compressed": 1677912
+    },
+    {
+      "name": "lib/armeabi-v7a/libmsaoaidauth.so",
+      "size": 139264,
+      "compressed": 63469
+    },
+    {
+      "name": "lib/armeabi-v7a/libmsaoaidsec.so",
+      "size": 421888,
+      "compressed": 339009
+    },
+    {
+      "name": "lib/arm64-v8a/libalicomphonenumberauthsdk_core.so",
+      "size": 5824,
+      "compressed": 1802
+    },
+    {
+      "name": "lib/arm64-v8a/libpl_droidsonroids_gif.so",
+      "size": 43016,
+      "compressed": 18866
+    },
+    {
+      "name": "lib/arm64-v8a/libpns-2.13.5-LogOnlineStandardCuumRelease_alijtca_plus.so",
+      "size": 447608,
+      "compressed": 169983
+    },
+    {
+      "name": "lib/arm64-v8a/libtapsdkcore.so",
+      "size": 4213088,
+      "compressed": 1561175
+    },
+    {
+      "name": "lib/arm64-v8a/libthemis.so",
+      "size": 853816,
+      "compressed": 420930
+    },
+    {
+      "name": "lib/arm64-v8a/libnative-lib.so",
+      "size": 1216880,
+      "compressed": 653165
+    },
+    {
+      "name": "lib/arm64-v8a/libCtaApiLib.so",
+      "size": 510464,
+      "compressed": 177098
+    },
+    {
+      "name": "lib/arm64-v8a/lib_burst_generated.so",
+      "size": 118720,
+      "compressed": 45507
+    },
+    {
+      "name": "lib/arm64-v8a/libbeaconid.so",
+      "size": 106904,
+      "compressed": 48148
+    },
+    {
+      "name": "lib/arm64-v8a/libcrypto.so",
+      "size": 2107944,
+      "compressed": 832325
+    },
+    {
+      "name": "lib/arm64-v8a/libdvstat.so",
+      "size": 1373288,
+      "compressed": 352421
+    },
+    {
+      "name": "lib/arm64-v8a/libfmod.so",
+      "size": 1163312,
+      "compressed": 572615
+    },
+    {
+      "name": "lib/arm64-v8a/libfmodstudio.so",
+      "size": 1116200,
+      "compressed": 318098
+    },
+    {
+      "name": "lib/arm64-v8a/libgmesdk.so",
+      "size": 6592976,
+      "compressed": 3015221
+    },
+    {
+      "name": "lib/arm64-v8a/libgvraudio.so",
+      "size": 346112,
+      "compressed": 186805
+    },
+    {
+      "name": "lib/arm64-v8a/libmain.so",
+      "size": 6736,
+      "compressed": 2552
+    },
+    {
+      "name": "lib/arm64-v8a/libqmp.so",
+      "size": 170888,
+      "compressed": 81196
+    },
+    {
+      "name": "lib/arm64-v8a/libresonanceaudio.so",
+      "size": 831152,
+      "compressed": 340913
+    },
+    {
+      "name": "lib/arm64-v8a/libsilk.so",
+      "size": 234064,
+      "compressed": 132347
+    },
+    {
+      "name": "lib/arm64-v8a/libslua.so",
+      "size": 420904,
+      "compressed": 160587
+    },
+    {
+      "name": "lib/arm64-v8a/libssl.so",
+      "size": 458664,
+      "compressed": 177563
+    },
+    {
+      "name": "lib/arm64-v8a/libsytool.so",
+      "size": 874880,
+      "compressed": 264331
+    },
+    {
+      "name": "lib/arm64-v8a/libtraeimp.so",
+      "size": 3318984,
+      "compressed": 1624934
+    },
+    {
+      "name": "lib/arm64-v8a/libtxffmpeg.so",
+      "size": 1632560,
+      "compressed": 812529
+    },
+    {
+      "name": "lib/arm64-v8a/libtxsoundtouch.so",
+      "size": 241632,
+      "compressed": 76809
+    },
+    {
+      "name": "lib/arm64-v8a/libxcrash.so",
+      "size": 81888,
+      "compressed": 40192
+    },
+    {
+      "name": "lib/arm64-v8a/libxcrash_dumper.so",
+      "size": 113264,
+      "compressed": 60438
+    },
+    {
+      "name": "lib/arm64-v8a/libil2cpp.so",
+      "size": 81334640,
+      "compressed": 21224885
+    },
+    {
+      "name": "lib/arm64-v8a/libunity.so",
+      "size": 26468720,
+      "compressed": 10851697
+    },
+    {
+      "name": "lib/arm64-v8a/libFairGuard.so",
+      "size": 5410992,
+      "compressed": 2417485
+    },
+    {
+      "name": "lib/arm64-v8a/libmsaoaidsec.so",
+      "size": 622592,
+      "compressed": 306159
+    },
+    {
+      "name": "lib/arm64-v8a/libmsaoaidauth.so",
+      "size": 376832,
+      "compressed": 77902
+    }
+  ],
+  "abis": [
+    "arm64-v8a",
+    "armeabi-v7a"
+  ],
+  "top_dirs_by_uncompressed_size": [
+    [
+      "assets",
+      556598587
+    ],
+    [
+      "lib",
+      254618872
+    ],
+    [
+      "res",
+      11162715
+    ],
+    [
+      "classes.dex",
+      10133984
+    ],
+    [
+      "classes2.dex",
+      7877716
+    ],
+    [
+      "classes4.dex",
+      6640936
+    ],
+    [
+      "META-INF",
+      1347615
+    ],
+    [
+      "resources.arsc",
+      1283476
+    ],
+    [
+      "classes3.dex",
+      622220
+    ],
+    [
+      "classes5.dex",
+      69976
+    ],
+    [
+      "AndroidManifest.xml",
+      43588
+    ],
+    [
+      "okhttp3",
+      34000
+    ],
+    [
+      "android-support-multidex.version.txt",
+      91
+    ]
+  ],
+  "top_exts_by_count": [
+    [
+      ".single",
+      3492
+    ],
+    [
+      ".xml",
+      894
+    ],
+    [
+      ".png",
+      467
+    ],
+    [
+      ".cfg",
+      329
+    ],
+    [
+      ".bank",
+      272
+    ],
+    [
+      ".folder",
+      148
+    ],
+    [
+      ".so",
+      64
+    ],
+    [
+      ".json",
+      11
+    ],
+    [
+      ".mp4",
+      8
+    ],
+    [
+      "<none>",
+      7
+    ],
+    [
+      ".js",
+      6
+    ],
+    [
+      ".dex",
+      5
+    ],
+    [
+      ".dat",
+      4
+    ],
+    [
+      ".properties",
+      4
+    ],
+    [
+      ".css",
+      3
+    ],
+    [
+      ".html",
+      3
+    ],
+    [
+      ".txt",
+      2
+    ],
+    [
+      ".arsc",
+      1
+    ],
+    [
+      ".gif",
+      1
+    ],
+    [
+      ".jpg",
+      1
+    ],
+    [
+      ".otf",
+      1
+    ],
+    [
+      ".ogg",
+      1
+    ],
+    [
+      ".profm",
+      1
+    ],
+    [
+      ".prof",
+      1
+    ],
+    [
+      ".bin",
+      1
+    ],
+    [
+      ".bytes",
+      1
+    ],
+    [
+      ".config",
+      1
+    ],
+    [
+      ".unity3d",
+      1
+    ],
+    [
+      ".asset",
+      1
+    ],
+    [
+      ".lua",
+      1
+    ]
+  ],
+  "largest_entries": [
+    {
+      "name": "lib/arm64-v8a/libil2cpp.so",
+      "size": 81334640,
+      "compressed": 21224885
+    },
+    {
+      "name": "lib/armeabi-v7a/libil2cpp.so",
+      "size": 68394632,
+      "compressed": 21236303
+    },
+    {
+      "name": "lib/arm64-v8a/libunity.so",
+      "size": 26468720,
+      "compressed": 10851697
+    },
+    {
+      "name": "lib/armeabi-v7a/libunity.so",
+      "size": 19111560,
+      "compressed": 10001276
+    },
+    {
+      "name": "assets/videos/opening_ghost_VS.mp4",
+      "size": 14661319,
+      "compressed": 14661319
+    },
+    {
+      "name": "assets/videos/opening_ghost_HS.mp4",
+      "size": 14635264,
+      "compressed": 14635264
+    },
+    {
+      "name": "assets/bin/Data/Managed/Metadata/global-metadata.dat",
+      "size": 12036300,
+      "compressed": 8402244
+    },
+    {
+      "name": "classes.dex",
+      "size": 10133984,
+      "compressed": 3623502
+    },
+    {
+      "name": "assets/soundbank/bgm_changan.assets.bank",
+      "size": 9473376,
+      "compressed": 9473376
+    },
+    {
+      "name": "assets/soundbank/Bgm_ChangAnCheng.assets.bank",
+      "size": 9473376,
+      "compressed": 9473376
+    },
+    {
+      "name": "assets/combatscene/prefabs/taipingcun_01.prefab.single",
+      "size": 8531991,
+      "compressed": 8531991
+    },
+    {
+      "name": "classes2.dex",
+      "size": 7877716,
+      "compressed": 3233436
+    },
+    {
+      "name": "classes4.dex",
+      "size": 6640936,
+      "compressed": 2459445
+    },
+    {
+      "name": "assets/font/wqy.ttf.single",
+      "size": 6640744,
+      "compressed": 6640744
+    },
+    {
+      "name": "lib/arm64-v8a/libgmesdk.so",
+      "size": 6592976,
+      "compressed": 3015221
+    },
+    {
+      "name": "assets/_subpackage.json",
+      "size": 6469559,
+      "compressed": 6469559
+    },
+    {
+      "name": "res/drawable/test_coupon.png",
+      "size": 5661051,
+      "compressed": 5661051
+    },
+    {
+      "name": "lib/arm64-v8a/libFairGuard.so",
+      "size": 5410992,
+      "compressed": 2417485
+    },
+    {
+      "name": "assets/textures/syc.folder",
+      "size": 4748648,
+      "compressed": 4748648
+    },
+    {
+      "name": "assets/soundbank/UI_Effect.assets.bank",
+      "size": 4470304,
+      "compressed": 4470304
+    },
+    {
+      "name": "lib/arm64-v8a/libtapsdkcore.so",
+      "size": 4213088,
+      "compressed": 1561175
+    },
+    {
+      "name": "lib/armeabi-v7a/libgmesdk.so",
+      "size": 4208168,
+      "compressed": 2628261
+    },
+    {
+      "name": "assets/shaders.folder",
+      "size": 4027159,
+      "compressed": 4027159
+    },
+    {
+      "name": "assets/bin/Data/data.unity3d",
+      "size": 3698476,
+      "compressed": 3698476
+    },
+    {
+      "name": "assets/textures/sydatas.folder",
+      "size": 3698280,
+      "compressed": 3698280
+    },
+    {
+      "name": "assets/_version.json",
+      "size": 3556327,
+      "compressed": 3556327
+    },
+    {
+      "name": "assets/font/wdtyk.ttf.single",
+      "size": 3442642,
+      "compressed": 3442642
+    },
+    {
+      "name": "assets/font/skillshout.ttf.single",
+      "size": 3358095,
+      "compressed": 3358095
+    },
+    {
+      "name": "lib/arm64-v8a/libtraeimp.so",
+      "size": 3318984,
+      "compressed": 1624934
+    },
+    {
+      "name": "assets/textures/syp.folder",
+      "size": 3219520,
+      "compressed": 3219520
+    },
+    {
+      "name": "assets/textures/sys.folder",
+      "size": 2923600,
+      "compressed": 2923600
+    },
+    {
+      "name": "lib/armeabi-v7a/libFairGuard.so",
+      "size": 2883056,
+      "compressed": 1677912
+    },
+    {
+      "name": "assets/textures/syw.folder",
+      "size": 2807804,
+      "compressed": 2807804
+    },
+    {
+      "name": "lib/armeabi-v7a/libtapsdkcore.so",
+      "size": 2782624,
+      "compressed": 1363146
+    },
+    {
+      "name": "assets/videos/battlemystery.mp4",
+      "size": 2776633,
+      "compressed": 2776633
+    },
+    {
+      "name": "assets/_resources.asset",
+      "size": 2756506,
+      "compressed": 2756506
+    },
+    {
+      "name": "assets/skyboxscene/prefabs/yaolingxitong_01.prefab.single",
+      "size": 2605400,
+      "compressed": 2605400
+    },
+    {
+      "name": "assets/videos/battlemystery_HS.mp4",
+      "size": 2526714,
+      "compressed": 2526714
+    },
+    {
+      "name": "lib/armeabi-v7a/libtraeimp.so",
+      "size": 2514996,
+      "compressed": 1408650
+    },
+    {
+      "name": "assets/textures/sydatap.folder",
+      "size": 2448008,
+      "compressed": 2448008
+    },
+    {
+      "name": "assets/soundbank/bgm_story_critical.assets.bank",
+      "size": 2428448,
+      "compressed": 2428448
+    },
+    {
+      "name": "assets/textures/sydatac.folder",
+      "size": 2418052,
+      "compressed": 2418052
+    },
+    {
+      "name": "assets/textures/sym.folder",
+      "size": 2354756,
+      "compressed": 2354756
+    },
+    {
+      "name": "assets/soundbank/ui_common.assets.bank",
+      "size": 2255264,
+      "compressed": 2255264
+    },
+    {
+      "name": "assets/textures/syg.folder",
+      "size": 2143796,
+      "compressed": 2143796
+    },
+    {
+      "name": "assets/spine/prefab/28001.prefab.single",
+      "size": 2121281,
+      "compressed": 2121281
+    },
+    {
+      "name": "lib/arm64-v8a/libcrypto.so",
+      "size": 2107944,
+      "compressed": 832325
+    },
+    {
+      "name": "assets/skyboxscene/prefabs/xuanjuejiemian_01.prefab.single",
+      "size": 2062901,
+      "compressed": 2062901
+    },
+    {
+      "name": "assets/soundbank/ui_activity.assets.bank",
+      "size": 2042528,
+      "compressed": 2042528
+    },
+    {
+      "name": "res/drawable/lelangf_gamebackground.png",
+      "size": 1946530,
+      "compressed": 1946530
+    }
+  ],
+  "interesting_entries": [
+    "AndroidManifest.xml",
+    "res/drawable/ic_keyboard_black_24dp.xml",
+    "res/drawable/lelangf_a_key_to_login_drawable.xml",
+    "res/drawable/lelangf_one_key_cancel_button_style.xml",
+    "res/drawable/lelangf_one_key_login_bg.png",
+    "res/drawable/lelangf_one_key_phone.png",
+    "res/drawable/lelangf_one_key_white_button_style.xml",
+    "res/drawable/material_ic_keyboard_arrow_left_black_24dp.xml",
+    "res/drawable/material_ic_keyboard_arrow_right_black_24dp.xml",
+    "res/drawable-mdpi/abc_menu_hardkey_panel_mtrl_mult.9.png",
+    "res/drawable-hdpi/abc_menu_hardkey_panel_mtrl_mult.9.png",
+    "res/drawable-xhdpi/abc_menu_hardkey_panel_mtrl_mult.9.png",
+    "res/drawable-xhdpi/lelangf_one_key_phone.png",
+    "res/drawable-xxhdpi/abc_menu_hardkey_panel_mtrl_mult.9.png",
+    "res/layout/lelangf_activity_a_key_to_login.xml",
+    "res/layout/lelangf_activity_main_a_key_to_login.xml",
+    "res/layout/lelangf_activity_new_a_key_to_login.xml",
+    "res/layout/lelangf_activity_one_key_to_binding.xml",
+    "res/layout/lelangf_activity_one_key_to_binding_gift.xml",
+    "res/layout/lelangf_dialog_one_key_land_cancel.xml",
+    "res/layout/lelangf_dialog_one_key_port_cancel.xml",
+    "res/layout/oauth_root_view2.xml",
+    "res/xml/network_config.xml",
+    "lib/armeabi-v7a/libssl.so",
+    "lib/arm64-v8a/libssl.so",
+    "assets/supplierconfig.json",
+    "assets/com.tencent.open.config.json",
+    "assets/bin/Data/boot.config",
+    "assets/prefabs/ui_android/chat/chatteamwartokenrichsitem.prefab.single",
+    "assets/prefabs/ui_android/eyesight/eyesightentrustfinish.prefab.single",
+    "assets/prefabs/ui_android/eyesight/eyesightentrustfinish_hs.prefab.single",
+    "assets/prefabs/ui_android/mainui/debug.prefab.single",
+    "assets/prefabs/ui_android/teamwartoken/chatteamwartokenitem.prefab.single",
+    "assets/textures/ui_android/eyesightentrust.folder",
+    "assets/hotfix_manifest.json",
+    "assets/shiyue_channel_config.properties",
+    "assets/shiyue_game_config.properties",
+    "assets/shiyue_plugin_config.xml",
+    "assets/u8_developer_config.properties",
+    "assets/u8_plugin_config.xml",
+    "okhttp3/internal/publicsuffix/publicsuffixes.gz",
+    "META-INF/LeLanADConfig.json",
+    "META-INF/MANIFEST.MF"
+  ]
+}

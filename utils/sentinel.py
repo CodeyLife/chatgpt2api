@@ -14,16 +14,22 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from curl_cffi.requests import Session
 
+# 默认 sentinel SDK URL（含日期版本号），OpenAI 更新 SDK 后可通过参数覆盖
+DEFAULT_SENTINEL_SDK_URL = "https://sentinel.openai.com/sentinel/20260124ceb8/sdk.js"
+
 
 class SentinelTokenGenerator:
     """Sentinel Token 生成器（PoW - Proof of Work）。"""
     MAX_ATTEMPTS = 500_000
     ERROR_PREFIX = "wQ8Lk5FbGpA2NcR9dShT6gYjU7VxZ4D"
 
-    def __init__(self, device_id: str, ua: str):
+    def __init__(self, device_id: str, ua: str, *, screen_resolution: str = "1920x1080", hardware_concurrency: int = 8, sdk_url: str = ""):
         self.device_id = device_id
         self.user_agent = ua
         self.sid = str(uuid.uuid4())
+        self.screen_resolution = screen_resolution
+        self.hardware_concurrency = hardware_concurrency
+        self.sdk_url = sdk_url or DEFAULT_SENTINEL_SDK_URL
 
     @staticmethod
     def _fnv1a_32(text: str) -> str:
@@ -41,12 +47,12 @@ class SentinelTokenGenerator:
     def _get_config(self) -> list:
         perf_now = random.uniform(1000, 50000)
         return [
-            "1920x1080",
+            self.screen_resolution,
             time.strftime("%a %b %d %Y %H:%M:%S GMT+0000 (Coordinated Universal Time)", time.gmtime()),
             4294705152,
             random.random(),
             self.user_agent,
-            "https://sentinel.openai.com/sentinel/20260124ceb8/sdk.js",
+            self.sdk_url,
             None,
             None,
             "en-US",
@@ -57,7 +63,7 @@ class SentinelTokenGenerator:
             perf_now,
             self.sid,
             "",
-            random.choice([4, 8, 12, 16]),
+            self.hardware_concurrency,
             time.time() * 1000 - perf_now,
         ]
 
@@ -100,6 +106,10 @@ def build_sentinel_token(
     *,
     user_agent: str = "",
     sec_ch_ua: str = "",
+    screen_resolution: str = "1920x1080",
+    hardware_concurrency: int = 8,
+    sec_ch_ua_platform: str = '"Windows"',
+    sdk_url: str = "",
 ) -> tuple[str, str]:
     """请求 sentinel token 并返回 (sentinel_header_value, oai_sc_cookie_value)。
 
@@ -109,6 +119,10 @@ def build_sentinel_token(
         flow: 流程标识（如 "password_verify", "username_password_create" 等）
         user_agent: 可选的 User-Agent 覆盖
         sec_ch_ua: 可选的 sec-ch-ua 覆盖
+        screen_resolution: 屏幕分辨率，从 BrowserProfile 透传，保证同账号一致
+        hardware_concurrency: CPU 核数，从 BrowserProfile 透传
+        sec_ch_ua_platform: 平台标识，从 BrowserProfile 透传
+        sdk_url: sentinel SDK URL，OpenAI 更新 SDK 后可覆盖
 
     Returns:
         (openai-sentinel-token header value, oai-sc cookie value) 元组
@@ -118,7 +132,13 @@ def build_sentinel_token(
     """
     ua = user_agent or DEFAULT_SENTINEL_USER_AGENT
     ch_ua = sec_ch_ua or DEFAULT_SENTINEL_SEC_CH_UA
-    generator = SentinelTokenGenerator(device_id, ua)
+    generator = SentinelTokenGenerator(
+        device_id,
+        ua,
+        screen_resolution=screen_resolution,
+        hardware_concurrency=hardware_concurrency,
+        sdk_url=sdk_url,
+    )
     resp = session.post(
         "https://sentinel.openai.com/backend-api/sentinel/req",
         data=json.dumps({"p": generator.generate_requirements_token(), "id": device_id, "flow": flow}),
@@ -129,7 +149,7 @@ def build_sentinel_token(
             "User-Agent": ua,
             "sec-ch-ua": ch_ua,
             "sec-ch-ua-mobile": "?0",
-            "sec-ch-ua-platform": '"Windows"',
+            "sec-ch-ua-platform": sec_ch_ua_platform,
         },
         timeout=20,
         verify=False,

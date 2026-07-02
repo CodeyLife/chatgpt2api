@@ -363,15 +363,19 @@ class AccountService:
     def _request_access_token_refresh(self, refresh_token: str, account: dict | None = None) -> dict[str, str]:
         from curl_cffi import requests
         from services.proxy_service import proxy_settings
+        from utils.fingerprint import get_profile_by_name
 
-        session = requests.Session(**proxy_settings.build_session_kwargs(account=account, impersonate="chrome110", verify=True))
+        # 从账号信息还原 profile，保证 token 刷新的指纹与注册时一致
+        profile_name = str((account or {}).get("fingerprint_profile") or "").strip()
+        profile = get_profile_by_name(profile_name)
+        session = requests.Session(**proxy_settings.build_session_kwargs(account=account, impersonate=profile.impersonate, verify=True))
         try:
             response = session.post(
                 self._OAUTH_TOKEN_URL,
                 headers={
                     "Accept": "application/json",
                     "Content-Type": "application/x-www-form-urlencoded",
-                    "User-Agent": self._OAUTH_USER_AGENT,
+                    "User-Agent": profile.user_agent,
                 },
                 data={
                     "grant_type": "refresh_token",
@@ -480,7 +484,12 @@ class AccountService:
     def _password_re_login_thread(self, access_token: str, email: str, password: str, event: str, progress_id: str | None = None) -> None:
         """密码重新登录线程入口"""
         try:
-            result = self._login_with_password(email, password)
+            # 从账号信息取持久化的 device_id 和 fingerprint_profile，
+            # 保证重登指纹与注册时一致，避免触发"同邮箱跨设备"风控
+            account = self.get_account(access_token) or {}
+            saved_device_id = str(account.get("device_id") or "").strip()
+            saved_profile_name = str(account.get("fingerprint_profile") or "").strip()
+            result = self._login_with_password(email, password, device_id=saved_device_id, profile_name=saved_profile_name)
             if result.get("ok"):
                 # 登录成功，更新账号
                 new_access_token = result.get("access_token", "")
@@ -584,27 +593,39 @@ class AccountService:
             if progress_id:
                 self.update_relogin_progress(progress_id, access_token, "异常", str(exc))
 
-    def _login_with_password(self, email: str, password: str) -> dict:
-        """通过邮箱+密码登录，返回 {access_token, refresh_token, id_token, ...}"""
+    def _login_with_password(self, email: str, password: str, device_id: str = "", profile_name: str = "") -> dict:
+        """通过邮箱+密码登录，返回 {access_token, refresh_token, id_token, ...}
+
+        传入持久化的 device_id 和 profile_name 可保证重登指纹与注册时一致，
+        避免 OpenAI 因"同邮箱跨设备"风控触发 app_session_terminated。
+        """
         from curl_cffi import requests
-        
+        from utils.fingerprint import get_profile_by_name
+
+        # 还原注册时的浏览器 profile，保证指纹一致（找不到时回退到默认 Chrome 145/Win）
+        profile = get_profile_by_name(profile_name)
+
         # 常量
         auth_base = "https://auth.openai.com"
         platform_oauth_audience = "https://api.openai.com/v1"
         platform_auth0_client = "eyJuYW1lIjoiYXV0aDAtc3BhLWpzIiwidmVyc2lvbiI6IjEuMjEuMCJ9"
         platform_oauth_client_id = self._OAUTH_CLIENT_ID
         platform_oauth_redirect_uri = "https://platform.openai.com/auth/callback"
-        user_agent = self._OAUTH_USER_AGENT
-        
-        # 创建 session
-        session_kwargs = {"impersonate": "chrome110", "verify": False}
+        user_agent = profile.user_agent
+        ch_ua = profile.sec_ch_ua
+        ch_ua_platform = profile.sec_ch_ua_platform
+        accept_lang = profile.accept_language
+
+        # 创建 session（用 profile 的 impersonate，与注册时一致）
+        session_kwargs = {"impersonate": profile.impersonate, "verify": False}
         proxy = config.get_proxy_settings()
         if proxy:
             session_kwargs["proxy"] = proxy
         session = requests.Session(**session_kwargs)
-        
+
         try:
-            device_id = str(uuid.uuid4())
+            # 复用持久化的 device_id，保证同账号设备指纹一致
+            device_id = str(device_id or "").strip() or str(uuid.uuid4())
             
             # ─── 方式2: OAuth authorize 流程 ──────────────────────────
             # 使用 Platform Client + PKCE（与注册流程相同）
@@ -634,22 +655,14 @@ class AccountService:
                 "auth0Client": platform_auth0_client,
             }
             authorize_url = f"{auth_base}/api/accounts/authorize?{urlencode(params)}"
+            # 使用 build_navigate_headers 作为基底，保证指纹完整性
+            from utils.fingerprint import build_navigate_headers
+            authorize_headers = build_navigate_headers(profile)
+            authorize_headers["sec-fetch-site"] = "cross-site"  # authorize 是跨站请求
+            authorize_headers["referer"] = "https://platform.openai.com/"
             resp = session.get(
                 authorize_url,
-                headers={
-                    "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-                    "accept-language": "zh-CN,zh;q=0.9,en;q=0.8",
-                    "user-agent": user_agent,
-                    "sec-ch-ua": '"Chromium";v="145", "Google Chrome";v="145", "Not/A)Brand";v="99"',
-                    "sec-ch-ua-mobile": "?0",
-                    "sec-ch-ua-platform": '"Windows"',
-                    "sec-fetch-dest": "document",
-                    "sec-fetch-mode": "navigate",
-                    "sec-fetch-site": "cross-site",
-                    "sec-fetch-user": "?1",
-                    "upgrade-insecure-requests": "1",
-                    "referer": "https://platform.openai.com/",
-                },
+                headers=authorize_headers,
                 allow_redirects=True,
                 timeout=30,
             )
@@ -675,27 +688,25 @@ class AccountService:
                     return {"ok": False, "error": "authorize_redirect_error", "detail": {"url": final_url, "parse_error": str(e)}}
             
             # ③ 提交密码验证
-            login_headers = {
-                "accept": "application/json",
-                "accept-language": "zh-CN,zh;q=0.9",
-                "content-type": "application/json",
-                "origin": auth_base,
-                "priority": "u=1, i",
-                "user-agent": user_agent,
-                "sec-ch-ua": '"Chromium";v="145", "Google Chrome";v="145", "Not/A)Brand";v="99"',
-                "sec-ch-ua-mobile": "?0",
-                "sec-ch-ua-platform": '"Windows"',
-                "sec-fetch-dest": "empty",
-                "sec-fetch-mode": "cors",
-                "sec-fetch-site": "same-origin",
-                "referer": f"{auth_base}/email-verification",
-                "oai-device-id": device_id,
-            }
+            # 使用 build_common_headers 作为基底，保证指纹的完整性
+            from utils.fingerprint import build_common_headers
+            login_headers = build_common_headers(profile)
+            login_headers["referer"] = f"{auth_base}/email-verification"
+            login_headers["oai-device-id"] = device_id
             
             # 添加 sentinel token
             try:
                 from utils.sentinel import build_sentinel_token
-                sentinel_val, oai_sc_val = build_sentinel_token(session, device_id, "password_verify")
+                sentinel_val, oai_sc_val = build_sentinel_token(
+                    session,
+                    device_id,
+                    "password_verify",
+                    user_agent=profile.user_agent,
+                    sec_ch_ua=profile.sec_ch_ua,
+                    screen_resolution=profile.screen_resolution,
+                    hardware_concurrency=profile.hardware_concurrency,
+                    sec_ch_ua_platform=profile.sec_ch_ua_platform,
+                )
                 login_headers["openai-sentinel-token"] = sentinel_val
                 if oai_sc_val:
                     session.cookies.set("oai-sc", oai_sc_val, domain=".openai.com")
@@ -749,26 +760,18 @@ class AccountService:
             
             # ④ 用 code 换 token (使用 Platform Client + code_verifier，与注册流程相同)
             platform_base = "https://platform.openai.com"
+            # 使用 build_common_headers 作为基底，保证指纹的完整性
+            from utils.fingerprint import build_common_headers
+            token_headers = build_common_headers(profile)
+            token_headers["accept"] = "*/*"
+            token_headers["auth0-client"] = platform_auth0_client
+            token_headers["origin"] = platform_base
+            token_headers["pragma"] = "no-cache"
+            token_headers["referer"] = f"{platform_base}/"
+            token_headers["sec-fetch-site"] = "same-site"  # OAuth token 是跨站
             token_resp = session.post(
                 f"{auth_base}/api/accounts/oauth/token",
-                headers={
-                    "accept": "*/*",
-                    "accept-language": "zh-CN,zh;q=0.9",
-                    "auth0-client": platform_auth0_client,
-                    "cache-control": "no-cache",
-                    "content-type": "application/json",
-                    "origin": platform_base,
-                    "pragma": "no-cache",
-                    "priority": "u=1, i",
-                    "referer": f"{platform_base}/",
-                    "sec-ch-ua": '"Chromium";v="145", "Google Chrome";v="145", "Not/A)Brand";v="99"',
-                    "sec-ch-ua-mobile": "?0",
-                    "sec-ch-ua-platform": '"Windows"',
-                    "sec-fetch-dest": "empty",
-                    "sec-fetch-mode": "cors",
-                    "sec-fetch-site": "same-site",
-                    "user-agent": user_agent,
-                },
+                headers=token_headers,
                 json={
                     "client_id": platform_oauth_client_id,
                     "code_verifier": code_verifier,
@@ -1298,7 +1301,7 @@ class AccountService:
                 if not image_quota_unknown and next_item["quota"] == 0:
                     next_item["status"] = "限流"
                     next_item["restore_at"] = next_item.get("restore_at") or None
-                elif next_item.get("status") == "限流":
+                elif next_item.get("status") == "限流" and int(next_item.get("quota") or 0) > 0:
                     next_item["status"] = "正常"
             else:
                 next_item["fail"] = int(next_item.get("fail") or 0) + 1

@@ -1,0 +1,1017 @@
+{
+  "component_count": 93,
+  "exported_true": [
+    {
+      "type": "activity",
+      "line": 163,
+      "name": "com.alipay.sdk.app.PayResultActivity",
+      "exported": true,
+      "authorities": null,
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "activity",
+      "line": 172,
+      "name": "com.alipay.sdk.app.AlipayResultActivity",
+      "exported": true,
+      "authorities": null,
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "activity",
+      "line": 188,
+      "name": "com.tencent.connect.common.AssistActivity",
+      "exported": true,
+      "authorities": null,
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "activity",
+      "line": 555,
+      "name": "com.tencent.connect.common.AssistActivity",
+      "exported": true,
+      "authorities": null,
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "activity",
+      "line": 576,
+      "name": "com.taptap.sdk.login.impl.ui.activity.TapTapLoginActivity",
+      "exported": true,
+      "authorities": null,
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "provider",
+      "line": 630,
+      "name": "androidx.core.content.FileProvider",
+      "exported": true,
+      "authorities": "com.cahx.gw1.sy.update.fileprovider",
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "activity",
+      "line": 638,
+      "name": "com.cahx.gw1.wxapi.WXEntryActivity",
+      "exported": true,
+      "authorities": null,
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "activity",
+      "line": 654,
+      "name": "com.tencent.tauth.AuthActivity",
+      "exported": true,
+      "authorities": null,
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "activity",
+      "line": 671,
+      "name": "com.shiyuegame.cahx.GameMainActivity",
+      "exported": true,
+      "authorities": null,
+      "actions": [],
+      "data": []
+    }
+  ],
+  "providers": [
+    {
+      "type": "provider",
+      "line": 194,
+      "name": "androidx.core.content.FileProvider",
+      "exported": false,
+      "authorities": "com.cahx.gw1.fileprovider",
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "provider",
+      "line": 459,
+      "name": "com.shiyue.game.view.InstallFileProvider",
+      "exported": false,
+      "authorities": "com.cahx.gw1.install.sy.FileProvider",
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "provider",
+      "line": 566,
+      "name": "androidx.startup.InitializationProvider",
+      "exported": false,
+      "authorities": "com.cahx.gw1.androidx-startup",
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "provider",
+      "line": 583,
+      "name": "com.taptap.sdk.update.internal.TapUpdateFileProvider",
+      "exported": false,
+      "authorities": "com.cahx.gw1.com.taptap.sdk.update.internal.fileProvider",
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "provider",
+      "line": 591,
+      "name": "com.taptap.sdk.update.download.OkDownloadProvider",
+      "exported": false,
+      "authorities": "com.cahx.gw1.com.taptap.services.update.okdownload",
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "provider",
+      "line": 612,
+      "name": "com.shiyue.sdk.extension.plugin.provider.PluginFileProvider",
+      "exported": false,
+      "authorities": "com.cahx.gw1.sdk.fileprovider",
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "provider",
+      "line": 622,
+      "name": "com.taptap.sdk.kit.internal.TapTapKitInitProvider",
+      "exported": false,
+      "authorities": "com.cahx.gw1.TapTapKitInitProvider",
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "provider",
+      "line": 626,
+      "name": "com.taptap.sdk.themis.lite.ThemisProvider",
+      "exported": false,
+      "authorities": "com.cahx.gw1.themisLite",
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "provider",
+      "line": 630,
+      "name": "androidx.core.content.FileProvider",
+      "exported": true,
+      "authorities": "com.cahx.gw1.sy.update.fileprovider",
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "provider",
+      "line": 739,
+      "name": "com.shiyue.tool.provider.SYToolFileProvider",
+      "exported": false,
+      "authorities": "com.cahx.gw1.fileprovider",
+      "actions": [],
+      "data": []
+    }
+  ],
+  "all": [
+    {
+      "type": "activity",
+      "line": 155,
+      "name": "com.alipay.sdk.app.H5PayActivity",
+      "exported": false,
+      "authorities": null,
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "activity",
+      "line": 159,
+      "name": "com.alipay.sdk.app.H5AuthActivity",
+      "exported": false,
+      "authorities": null,
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "activity",
+      "line": 163,
+      "name": "com.alipay.sdk.app.PayResultActivity",
+      "exported": true,
+      "authorities": null,
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "activity",
+      "line": 172,
+      "name": "com.alipay.sdk.app.AlipayResultActivity",
+      "exported": true,
+      "authorities": null,
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "activity",
+      "line": 177,
+      "name": "com.alipay.sdk.app.H5OpenAuthActivity",
+      "exported": false,
+      "authorities": null,
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "activity",
+      "line": 183,
+      "name": "com.tencent.captchasdk.TCaptchaPopupActivity",
+      "exported": false,
+      "authorities": null,
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "activity",
+      "line": 188,
+      "name": "com.tencent.connect.common.AssistActivity",
+      "exported": true,
+      "authorities": null,
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "provider",
+      "line": 194,
+      "name": "androidx.core.content.FileProvider",
+      "exported": false,
+      "authorities": "com.cahx.gw1.fileprovider",
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "activity",
+      "line": 205,
+      "name": "com.shiyue.game.ui.activity.CaptchaActivity",
+      "exported": null,
+      "authorities": null,
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "activity",
+      "line": 210,
+      "name": "com.shiyue.game.ui.activity.AccountLogin",
+      "exported": null,
+      "authorities": null,
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "activity",
+      "line": 215,
+      "name": "com.shiyue.game.ui.activity.VerifyCodeActivity",
+      "exported": null,
+      "authorities": null,
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "activity",
+      "line": 220,
+      "name": "com.shiyue.game.ui.activity.MainLoginActivity",
+      "exported": null,
+      "authorities": null,
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "activity",
+      "line": 225,
+      "name": "com.shiyue.game.ui.activity.AutoLogin",
+      "exported": null,
+      "authorities": null,
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "activity",
+      "line": 230,
+      "name": "com.shiyue.game.ui.activity.AccountRegister",
+      "exported": null,
+      "authorities": null,
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "activity",
+      "line": 235,
+      "name": "com.shiyue.game.ui.activity.PhoneRegister",
+      "exported": null,
+      "authorities": null,
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "activity",
+      "line": 240,
+      "name": "com.shiyue.game.ui.activity.SMSRegister",
+      "exported": null,
+      "authorities": null,
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "activity",
+      "line": 245,
+      "name": "com.shiyue.game.ui.activity.PhoneBinding",
+      "exported": null,
+      "authorities": null,
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "activity",
+      "line": 250,
+      "name": "com.shiyue.game.ui.activity.AccountRegesterSuccess",
+      "exported": null,
+      "authorities": null,
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "activity",
+      "line": 255,
+      "name": "com.shiyue.game.ui.activity.HelpActivity",
+      "exported": false,
+      "authorities": null,
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "activity",
+      "line": 261,
+      "name": "com.shiyue.game.ui.activity.ForgetActivity",
+      "exported": null,
+      "authorities": null,
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "activity",
+      "line": 266,
+      "name": "com.shiyue.game.ui.activity.ModifyPasswordActivity",
+      "exported": null,
+      "authorities": null,
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "activity",
+      "line": 271,
+      "name": "com.shiyue.game.ui.activity.RealNameActivity",
+      "exported": null,
+      "authorities": null,
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "activity",
+      "line": 276,
+      "name": "com.shiyue.game.ui.activity.RealNameFailureActivity",
+      "exported": null,
+      "authorities": null,
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "activity",
+      "line": 281,
+      "name": "com.shiyue.game.ui.activity.RealNameHint",
+      "exported": null,
+      "authorities": null,
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "activity",
+      "line": 286,
+      "name": "com.shiyue.game.ui.activity.NoGrowUpHint",
+      "exported": null,
+      "authorities": null,
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "activity",
+      "line": 291,
+      "name": "com.shiyue.game.ui.activity.NoGrowUpCanNotEnter",
+      "exported": null,
+      "authorities": null,
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "activity",
+      "line": 296,
+      "name": "com.shiyue.game.ui.activity.AdultPayHint",
+      "exported": null,
+      "authorities": null,
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "activity",
+      "line": 301,
+      "name": "com.shiyue.game.ui.activity.ecology.UserListActivity",
+      "exported": null,
+      "authorities": null,
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "activity",
+      "line": 306,
+      "name": "com.shiyue.game.ui.activity.ecology.AnalysisActivity",
+      "exported": null,
+      "authorities": null,
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "activity",
+      "line": 311,
+      "name": "com.shiyue.game.ui.activity.ecology.DialogActivity",
+      "exported": null,
+      "authorities": null,
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "activity",
+      "line": 316,
+      "name": "com.shiyue.game.ui.activity.ecology.WarningActivity",
+      "exported": null,
+      "authorities": null,
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "activity",
+      "line": 321,
+      "name": "com.shiyue.game.ui.activity.ecology.TimeListActivity",
+      "exported": null,
+      "authorities": null,
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "activity",
+      "line": 326,
+      "name": "com.shiyue.game.ui.activity.UseragreementActivity",
+      "exported": false,
+      "authorities": null,
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "activity",
+      "line": 333,
+      "name": "com.shiyue.game.ui.activity.SystemmaintenanceActivity",
+      "exported": null,
+      "authorities": null,
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "activity",
+      "line": 338,
+      "name": "com.shiyue.game.ui.activity.UpdateActivity",
+      "exported": null,
+      "authorities": null,
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "activity",
+      "line": 343,
+      "name": "com.shiyue.game.ui.activity.UprdateProgressActivity",
+      "exported": null,
+      "authorities": null,
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "activity",
+      "line": 348,
+      "name": "com.shiyue.game.ui.activity.WebPayActivity",
+      "exported": false,
+      "authorities": null,
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "activity",
+      "line": 353,
+      "name": "com.shiyue.game.ui.activity.WebPayShowActivity",
+      "exported": false,
+      "authorities": null,
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "activity",
+      "line": 358,
+      "name": "com.shiyue.game.ui.activity.ShiyueWxEntryActivity",
+      "exported": null,
+      "authorities": null,
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "activity",
+      "line": 363,
+      "name": "com.shiyue.game.ui.activity.AccountCenter",
+      "exported": false,
+      "authorities": null,
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "activity",
+      "line": 373,
+      "name": "com.shiyue.game.ui.activity.ServiceActivity",
+      "exported": false,
+      "authorities": null,
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "activity",
+      "line": 380,
+      "name": "com.shiyue.game.ui.activity.TryRequestActivity",
+      "exported": false,
+      "authorities": null,
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "activity",
+      "line": 386,
+      "name": "com.shiyue.game.ui.activity.WebServiceActivity",
+      "exported": false,
+      "authorities": null,
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "activity",
+      "line": 393,
+      "name": "com.shiyue.game.ui.activity.WebServiceTwoActivity",
+      "exported": false,
+      "authorities": null,
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "activity",
+      "line": 400,
+      "name": "com.shiyue.game.ui.activity.MiddleActivity",
+      "exported": null,
+      "authorities": null,
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "activity",
+      "line": 405,
+      "name": "com.shiyue.game.ui.activity.AgreementRemindActivity",
+      "exported": null,
+      "authorities": null,
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "activity",
+      "line": 410,
+      "name": "com.shiyue.game.ui.activity.AnnouncementActivity",
+      "exported": false,
+      "authorities": null,
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "activity",
+      "line": 416,
+      "name": "com.shiyue.game.ui.activity.RealNameTrip",
+      "exported": null,
+      "authorities": null,
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "activity",
+      "line": 421,
+      "name": "com.shiyue.game.utils.scan.activity.CaptureActivity",
+      "exported": null,
+      "authorities": null,
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "activity",
+      "line": 426,
+      "name": "com.shiyue.game.ui.activity.ShowAlbumPhotoActivity",
+      "exported": null,
+      "authorities": null,
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "activity",
+      "line": 431,
+      "name": "com.shiyue.game.ui.activity.ForumActivity",
+      "exported": false,
+      "authorities": null,
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "activity",
+      "line": 437,
+      "name": "com.shiyue.game.ui.activity.PrivacyProtocolActivity",
+      "exported": false,
+      "authorities": null,
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "activity",
+      "line": 444,
+      "name": "com.shiyue.game.ui.activity.ActiveCodeActivity",
+      "exported": null,
+      "authorities": null,
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "activity",
+      "line": 449,
+      "name": "com.shiyue.game.ui.activity.QRActivity",
+      "exported": null,
+      "authorities": null,
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "activity",
+      "line": 454,
+      "name": "com.shiyue.game.ui.activity.ShowLoginPromptActivity",
+      "exported": null,
+      "authorities": null,
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "provider",
+      "line": 459,
+      "name": "com.shiyue.game.view.InstallFileProvider",
+      "exported": false,
+      "authorities": "com.cahx.gw1.install.sy.FileProvider",
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "activity",
+      "line": 467,
+      "name": "com.shiyue.game.ui.activity.LoginManagerActivity",
+      "exported": false,
+      "authorities": null,
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "activity",
+      "line": 474,
+      "name": "com.shiyue.game.ui.activity.update.StrongUpdateActivity",
+      "exported": null,
+      "authorities": null,
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "activity",
+      "line": 479,
+      "name": "com.shiyue.game.ui.activity.update.WeakUpdateActivity",
+      "exported": null,
+      "authorities": null,
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "activity",
+      "line": 484,
+      "name": "com.shiyue.game.ui.activity.update.PreUpdateActivity",
+      "exported": null,
+      "authorities": null,
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "activity",
+      "line": 489,
+      "name": "com.shiyue.game.ui.activity.update.InstallProxyActivity",
+      "exported": false,
+      "authorities": null,
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "activity",
+      "line": 496,
+      "name": "com.shiyue.game.ui.activity.update.ScheduleUpdataActivity",
+      "exported": null,
+      "authorities": null,
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "service",
+      "line": 501,
+      "name": "com.shiyue.game.utils.CheckExitService",
+      "exported": null,
+      "authorities": null,
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "activity",
+      "line": 503,
+      "name": "cn.com.chinatelecom.account.sdk.ui.AuthActivity",
+      "exported": false,
+      "authorities": null,
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "activity",
+      "line": 507,
+      "name": "cn.com.chinatelecom.account.sdk.ui.MiniAuthActivity",
+      "exported": false,
+      "authorities": null,
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "activity",
+      "line": 511,
+      "name": "cn.com.chinatelecom.account.sdk.ui.PrivacyWebviewActivity",
+      "exported": false,
+      "authorities": null,
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "activity",
+      "line": 515,
+      "name": "com.mobile.auth.gatewayauth.LoginAuthActivity",
+      "exported": false,
+      "authorities": null,
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "activity",
+      "line": 521,
+      "name": "com.mobile.auth.gatewayauth.activity.AuthWebVeiwActivity",
+      "exported": false,
+      "authorities": null,
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "activity",
+      "line": 528,
+      "name": "com.mobile.auth.gatewayauth.PrivacyDialogActivity",
+      "exported": false,
+      "authorities": null,
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "activity",
+      "line": 535,
+      "name": "com.shiyue.game.ui.activity.CouponActivity",
+      "exported": null,
+      "authorities": null,
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "activity",
+      "line": 540,
+      "name": "com.cmic.sso.sdk.activity.LoginAuthActivity",
+      "exported": false,
+      "authorities": null,
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "activity",
+      "line": 546,
+      "name": "com.shiyue.game.utils.onekeylogin.CustomWebViewActivity",
+      "exported": false,
+      "authorities": null,
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "activity",
+      "line": 555,
+      "name": "com.tencent.connect.common.AssistActivity",
+      "exported": true,
+      "authorities": null,
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "activity",
+      "line": 561,
+      "name": "com.shiyue.game.ui.activity.ScanLoginSwitchActivity",
+      "exported": null,
+      "authorities": null,
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "provider",
+      "line": 566,
+      "name": "androidx.startup.InitializationProvider",
+      "exported": false,
+      "authorities": "com.cahx.gw1.androidx-startup",
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "activity",
+      "line": 576,
+      "name": "com.taptap.sdk.login.impl.ui.activity.TapTapLoginActivity",
+      "exported": true,
+      "authorities": null,
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "provider",
+      "line": 583,
+      "name": "com.taptap.sdk.update.internal.TapUpdateFileProvider",
+      "exported": false,
+      "authorities": "com.cahx.gw1.com.taptap.sdk.update.internal.fileProvider",
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "provider",
+      "line": 591,
+      "name": "com.taptap.sdk.update.download.OkDownloadProvider",
+      "exported": false,
+      "authorities": "com.cahx.gw1.com.taptap.services.update.okdownload",
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "service",
+      "line": 598,
+      "name": "com.shiyue.game.util.GameExitService",
+      "exported": null,
+      "authorities": null,
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "activity",
+      "line": 600,
+      "name": "com.shiyue.sdk.extension.plugin.activity.PrivacyDetailActivity",
+      "exported": null,
+      "authorities": null,
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "activity",
+      "line": 606,
+      "name": "com.shiyue.sdk.extension.plugin.activity.PrivacyActivity",
+      "exported": null,
+      "authorities": null,
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "provider",
+      "line": 612,
+      "name": "com.shiyue.sdk.extension.plugin.provider.PluginFileProvider",
+      "exported": false,
+      "authorities": "com.cahx.gw1.sdk.fileprovider",
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "service",
+      "line": 620,
+      "name": "com.shiyue.game.integration.util.GameExitService",
+      "exported": null,
+      "authorities": null,
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "provider",
+      "line": 622,
+      "name": "com.taptap.sdk.kit.internal.TapTapKitInitProvider",
+      "exported": false,
+      "authorities": "com.cahx.gw1.TapTapKitInitProvider",
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "provider",
+      "line": 626,
+      "name": "com.taptap.sdk.themis.lite.ThemisProvider",
+      "exported": false,
+      "authorities": "com.cahx.gw1.themisLite",
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "provider",
+      "line": 630,
+      "name": "androidx.core.content.FileProvider",
+      "exported": true,
+      "authorities": "com.cahx.gw1.sy.update.fileprovider",
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "activity",
+      "line": 638,
+      "name": "com.cahx.gw1.wxapi.WXEntryActivity",
+      "exported": true,
+      "authorities": null,
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "activity",
+      "line": 654,
+      "name": "com.tencent.tauth.AuthActivity",
+      "exported": true,
+      "authorities": null,
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "activity",
+      "line": 671,
+      "name": "com.shiyuegame.cahx.GameMainActivity",
+      "exported": true,
+      "authorities": null,
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "activity",
+      "line": 697,
+      "name": "com.shiyuegame.cahx.WebcamActivity",
+      "exported": null,
+      "authorities": null,
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "service",
+      "line": 733,
+      "name": "com.uwa.screenshot.mediaprojection.ScreenShotService",
+      "exported": null,
+      "authorities": null,
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "provider",
+      "line": 739,
+      "name": "com.shiyue.tool.provider.SYToolFileProvider",
+      "exported": false,
+      "authorities": "com.cahx.gw1.fileprovider",
+      "actions": [],
+      "data": []
+    },
+    {
+      "type": "activity",
+      "line": 747,
+      "name": "com.shiyue.tool.ui.ImagePreviewActivity",
+      "exported": false,
+      "authorities": null,
+      "actions": [],
+      "data": []
+    }
+  ]
+}

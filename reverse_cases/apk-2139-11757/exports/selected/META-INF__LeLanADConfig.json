@@ -1,0 +1,19 @@
+{
+    "project_id": 107,
+    "app_id": 2139,
+    "ad_channel_id": 9,
+    "sc_channel_id": 11757,
+    "type": 1,
+    "ad_extension": {
+        "id": 2260,
+        "ad_channel_config": "",
+        "ad_director": 0,
+        "ad_id": 0,
+        "app_channel_id": 2260,
+        "channel_id": 11757,
+        "package_name": "com.cahx.gw1",
+        "rh_channel_id": "0",
+        "sub_ad_channel_id": 0,
+        "department": "publish"
+    }
+}

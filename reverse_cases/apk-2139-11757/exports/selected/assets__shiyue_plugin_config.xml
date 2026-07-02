@@ -1,0 +1,5 @@
+<plugins>
+<plugin name="com.shiyue.sdk.LeLanUser" type="1" desc="用户登录接口"/>
+<plugin name="com.shiyue.sdk.LeLanPay" type="2" desc="用户支付接口"/>
+<plugin name="com.shiyue.sdk.SharePluginUser" type="4" desc="用户分享接口"/>
+</plugins>

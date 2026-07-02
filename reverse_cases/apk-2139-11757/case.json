@@ -1,0 +1,17 @@
+{
+  "case_name": "apk-2139-11757",
+  "case_id": "apk-2139-11757",
+  "goal": "Reverse engineer APK 2139_11757.apk with offline static triage first",
+  "scope": "local sandbox, non-executing static analysis",
+  "created_utc": "2026-07-01T08:40:20.076984+00:00",
+  "directories": [
+    "artifacts",
+    "triage",
+    "reports",
+    "logs",
+    "notes",
+    "exports",
+    "tools",
+    "prompts"
+  ]
+}

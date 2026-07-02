@@ -1,0 +1,15 @@
+{
+"check_apk_path": "https://cahx-cdn.shiyuegame.com/cahx.urp.dist",
+"check_apk_path_ip": "https://cahx-cdn01.shiyuegame.com/cahx.urp.dist",
+"debug": "false",
+"apk_version": "2018010818",
+"res_version": "20260622165011",
+"check_apk": "true",
+"useOldAnimation": "false",
+"loadCancel": "true",
+"unity_version": "2022.3",
+"LodResPaths": "textures/icon/>textures_lod/icon/,single/atlas/>single/atlas_lod/,textures/ui_>textures_lod/ui_,single/atlas/>single/atlas_lod/,homeelement/material/>homeelement/material_lod/,spine/model/>spine/model_lod/,combatscene/scenes/>combatscene/scenes_lod/,skyboxscene/commontexture/>skyboxscene_lod/commontexture/,scenebg/>scenebg_lod/,effect/sharetexture/>effect/sharetexture_lod/,effect/sharematerial/>effect/sharematerial_lod/",
+"download_apk_path": "http://127.0.0.1/xj/apk",
+"cdn_path": "https://cahx-cdn.shiyuegame.com/cahx.urp.dist",
+"theone_cdn_path": "https://cahx-cdn.shiyuegame.com/cahx.urp.dist"
+}

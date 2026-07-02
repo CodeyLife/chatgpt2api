@@ -19,6 +19,7 @@ from curl_cffi import requests
 from services.account_service import account_service
 from services.proxy_service import ClearanceBundle, proxy_settings
 from services.register import mail_provider
+from utils.fingerprint import BrowserProfile, DEFAULT_PROFILE, build_common_headers, build_navigate_headers, random_profile
 
 base_dir = Path(__file__).resolve().parent
 config = {
@@ -155,9 +156,23 @@ def _random_password(length: int = 16) -> str:
 
 
 def _random_name() -> tuple[str, str]:
-    return random.choice(["James", "Robert", "John", "Michael", "David", "Mary", "Emma", "Olivia"]), random.choice(
-        ["Smith", "Johnson", "Williams", "Brown", "Jones", "Garcia", "Miller"]
-    )
+    first_names = [
+        "James", "Robert", "John", "Michael", "David", "Mary", "Emma", "Olivia",
+        "William", "Richard", "Joseph", "Thomas", "Charles", "Christopher", "Daniel",
+        "Matthew", "Anthony", "Mark", "Donald", "Steven", "Paul", "Andrew", "Joshua",
+        "Kenneth", "Kevin", "Brian", "George", "Edward", "Ronald", "Timothy",
+        "Sarah", "Jennifer", "Linda", "Elizabeth", "Barbara", "Susan", "Jessica",
+        "Margaret", "Lisa", "Nancy", "Karen", "Betty", "Helen", "Sandra", "Donna",
+    ]
+    last_names = [
+        "Smith", "Johnson", "Williams", "Brown", "Jones", "Garcia", "Miller",
+        "Davis", "Rodriguez", "Martinez", "Hernandez", "Lopez", "Gonzalez", "Wilson",
+        "Anderson", "Thomas", "Taylor", "Moore", "Jackson", "Martin", "Lee", "Perez",
+        "Thompson", "White", "Harris", "Sanchez", "Clark", "Ramirez", "Lewis", "Robinson",
+        "Walker", "Young", "Allen", "King", "Wright", "Scott", "Torres", "Nguyen",
+        "Hill", "Flores", "Green", "Adams", "Nelson", "Baker", "Hall", "Rivera",
+    ]
+    return random.choice(first_names), random.choice(last_names)
 
 
 def _random_birthdate() -> str:
@@ -246,17 +261,33 @@ def wait_for_code(mailbox: dict) -> str | None:
 from utils.sentinel import SentinelTokenGenerator, build_sentinel_token as _build_sentinel_token_tuple  # noqa: F401
 
 
-def build_sentinel_token(session: requests.Session, device_id: str, flow: str) -> str:
-    """请求 sentinel token，返回 sentinel header 字符串（兼容旧接口）。"""
-    sentinel_val, _oai_sc_val = _build_sentinel_token_tuple(session, device_id, flow, user_agent=user_agent, sec_ch_ua=sec_ch_ua)
+def build_sentinel_token(session: requests.Session, device_id: str, flow: str, profile: BrowserProfile | None = None) -> str:
+    """请求 sentinel token，返回 sentinel header 字符串（兼容旧接口）。
+
+    传入 profile 时使用 profile 的指纹特征（UA/分辨率/CPU 等），保证同账号全生命周期一致；
+    不传时回退到模块级默认值（Chrome 145 / Windows）。
+    """
+    if profile is not None:
+        sentinel_val, _oai_sc_val = _build_sentinel_token_tuple(
+            session,
+            device_id,
+            flow,
+            user_agent=profile.user_agent,
+            sec_ch_ua=profile.sec_ch_ua,
+            screen_resolution=profile.screen_resolution,
+            hardware_concurrency=profile.hardware_concurrency,
+            sec_ch_ua_platform=profile.sec_ch_ua_platform,
+        )
+    else:
+        sentinel_val, _oai_sc_val = _build_sentinel_token_tuple(session, device_id, flow, user_agent=user_agent, sec_ch_ua=sec_ch_ua)
     return sentinel_val
 
 
-def create_session(proxy: str = "") -> Any:
+def create_session(proxy: str = "", impersonate: str = "chrome") -> Any:
     kwargs = proxy_settings.build_session_kwargs(
         proxy=proxy,
         upstream=True,
-        impersonate="chrome",
+        impersonate=impersonate,
         verify=False,
     )
     return requests.Session(**kwargs)
@@ -313,15 +344,15 @@ def request_with_local_retry(session: requests.Session, method: str, url: str, r
     return None, last_error
 
 
-def validate_otp(session: requests.Session, device_id: str, code: str):
-    headers = dict(common_headers)
+def validate_otp(session: requests.Session, device_id: str, code: str, profile: BrowserProfile | None = None):
+    headers = build_common_headers(profile) if profile else dict(common_headers)
     headers["referer"] = f"{auth_base}/email-verification"
     headers["oai-device-id"] = device_id
     headers.update(_make_trace_headers())
     resp, error = request_with_local_retry(session, "post", f"{auth_base}/api/accounts/email-otp/validate", json={"code": code}, headers=headers, verify=False)
     if resp is not None and resp.status_code == 200:
         return resp, ""
-    headers["openai-sentinel-token"] = build_sentinel_token(session, device_id, "authorize_continue")
+    headers["openai-sentinel-token"] = build_sentinel_token(session, device_id, "authorize_continue", profile=profile)
     resp, error = request_with_local_retry(session, "post", f"{auth_base}/api/accounts/email-otp/validate", json={"code": code}, headers=headers, verify=False)
     return resp, error
 
@@ -339,25 +370,19 @@ def extract_oauth_callback_params_from_url(url: str) -> dict[str, str] | None:
     return {"code": code, "state": str((params.get("state") or [""])[0]).strip(), "scope": str((params.get("scope") or [""])[0]).strip()}
 
 
-def request_platform_oauth_token(session: requests.Session, code: str, code_verifier: str) -> dict | None:
-    headers = {
-        "accept": "*/*",
-        "accept-language": "zh-CN,zh;q=0.9",
-        "auth0-client": platform_auth0_client,
-        "cache-control": "no-cache",
-        "content-type": "application/json",
-        "origin": platform_base,
-        "pragma": "no-cache",
-        "priority": "u=1, i",
-        "referer": f"{platform_base}/",
-        "sec-ch-ua": sec_ch_ua,
-        "sec-ch-ua-mobile": "?0",
-        "sec-ch-ua-platform": '"Windows"',
-        "sec-fetch-dest": "empty",
-        "sec-fetch-mode": "cors",
-        "sec-fetch-site": "same-site",
-        "user-agent": user_agent,
-    }
+def request_platform_oauth_token(session: requests.Session, code: str, code_verifier: str, profile: BrowserProfile | None = None) -> dict | None:
+    # 用 build_common_headers 作为基底，保证 sec-ch-ua-full-version-list / sec-ch-ua-arch /
+    # sec-ch-ua-bitness / sec-ch-ua-platform-version / sec-ch-ua-model / dnt / sec-gpc /
+    # connection / accept-encoding 等指纹 header 与注册流程完全一致，避免被风控区分设备
+    p = profile or DEFAULT_PROFILE
+    headers = build_common_headers(p)
+    # 覆盖 OAuth token 接口的差异字段
+    headers["accept"] = "*/*"
+    headers["auth0-client"] = platform_auth0_client
+    headers["origin"] = platform_base
+    headers["pragma"] = "no-cache"
+    headers["referer"] = f"{platform_base}/"
+    headers["sec-fetch-site"] = "same-site"  # 跨站请求（platform.openai.com → auth.openai.com）
     resp = session.post(
         f"{auth_base}/api/accounts/oauth/token",
         headers=headers,
@@ -378,9 +403,10 @@ def request_platform_oauth_token(session: requests.Session, code: str, code_veri
 
 
 class PlatformRegistrar:
-    def __init__(self, proxy: str = "") -> None:
+    def __init__(self, proxy: str = "", profile: BrowserProfile | None = None) -> None:
         self.proxy = str(proxy or "").strip()
-        self.session = create_session(self.proxy)
+        self.profile = profile or random_profile()
+        self.session = create_session(self.proxy, impersonate=self.profile.impersonate)
         self.clearance_user_agent = ""
         self.clearance_failure_reason = ""
         self.device_id = str(uuid.uuid4())
@@ -391,13 +417,13 @@ class PlatformRegistrar:
         self.session.close()
 
     def _navigate_headers(self, referer: str = "") -> dict[str, str]:
-        headers = dict(navigate_headers)
+        headers = build_navigate_headers(self.profile)
         if referer:
             headers["referer"] = referer
         return headers
 
     def _json_headers(self, referer: str) -> dict[str, str]:
-        headers = dict(common_headers)
+        headers = build_common_headers(self.profile)
         headers["referer"] = referer
         headers["oai-device-id"] = self.device_id
         headers.update(_make_trace_headers())
@@ -481,7 +507,7 @@ class PlatformRegistrar:
         step(index, "开始提交注册密码")
         url = f"{auth_base}/api/accounts/user/register"
         headers = self._json_headers(f"{auth_base}/create-account/password")
-        headers["openai-sentinel-token"] = build_sentinel_token(self.session, self.device_id, "username_password_create")
+        headers["openai-sentinel-token"] = build_sentinel_token(self.session, self.device_id, "username_password_create", profile=self.profile)
         headers = _headers_with_clearance(headers, url, self.proxy, self.clearance_user_agent)
         resp, error = request_with_local_retry(self.session, "post", url, json={"username": email, "password": password}, headers=headers, verify=False)
         if _is_cloudflare_challenge(resp):
@@ -489,7 +515,7 @@ class PlatformRegistrar:
             if bundle is None:
                 raise RuntimeError(_cloudflare_block_message(resp, reason=self.clearance_failure_reason))
             headers = self._json_headers(f"{auth_base}/create-account/password")
-            headers["openai-sentinel-token"] = build_sentinel_token(self.session, self.device_id, "username_password_create")
+            headers["openai-sentinel-token"] = build_sentinel_token(self.session, self.device_id, "username_password_create", profile=self.profile)
             headers = _headers_with_clearance(headers, url, self.proxy, self.clearance_user_agent)
             resp, error = request_with_local_retry(self.session, "post", url, json={"username": email, "password": password}, headers=headers, verify=False)
             if _is_cloudflare_challenge(resp):
@@ -521,7 +547,7 @@ class PlatformRegistrar:
 
     def _validate_otp(self, code: str, index: int) -> None:
         step(index, f"开始校验验证码 {code}")
-        resp, error = validate_otp(self.session, self.device_id, code)
+        resp, error = validate_otp(self.session, self.device_id, code, profile=self.profile)
         if resp is None or resp.status_code != 200:
             body = ""
             try:
@@ -535,7 +561,7 @@ class PlatformRegistrar:
         step(index, "开始创建账号资料")
         url = f"{auth_base}/api/accounts/create_account"
         headers = self._json_headers(f"{auth_base}/about-you")
-        headers["openai-sentinel-token"] = build_sentinel_token(self.session, self.device_id, "oauth_create_account")
+        headers["openai-sentinel-token"] = build_sentinel_token(self.session, self.device_id, "oauth_create_account", profile=self.profile)
         headers = _headers_with_clearance(headers, url, self.proxy, self.clearance_user_agent)
         resp, error = request_with_local_retry(self.session, "post", url, json={"name": name, "birthdate": birthdate}, headers=headers, verify=False)
         if _is_cloudflare_challenge(resp):
@@ -543,7 +569,7 @@ class PlatformRegistrar:
             if bundle is None:
                 raise RuntimeError(_cloudflare_block_message(resp, reason=self.clearance_failure_reason))
             headers = self._json_headers(f"{auth_base}/about-you")
-            headers["openai-sentinel-token"] = build_sentinel_token(self.session, self.device_id, "oauth_create_account")
+            headers["openai-sentinel-token"] = build_sentinel_token(self.session, self.device_id, "oauth_create_account", profile=self.profile)
             headers = _headers_with_clearance(headers, url, self.proxy, self.clearance_user_agent)
             resp, error = request_with_local_retry(self.session, "post", url, json={"name": name, "birthdate": birthdate}, headers=headers, verify=False)
             if _is_cloudflare_challenge(resp):
@@ -561,7 +587,7 @@ class PlatformRegistrar:
 
     def _exchange_registered_tokens(self, index: int) -> dict:
         step(index, "开始换 token")
-        tokens = request_platform_oauth_token(self.session, self.platform_auth_code, self.code_verifier)
+        tokens = request_platform_oauth_token(self.session, self.platform_auth_code, self.code_verifier, profile=self.profile)
         if not tokens:
             raise RuntimeError("token换取失败")
         step(index, "token 换取完成")
@@ -602,6 +628,8 @@ class PlatformRegistrar:
             "id_token": str(tokens.get("id_token") or "").strip(),
             "source_type": "web",
             "created_at": datetime.now(timezone.utc).isoformat(),
+            "device_id": self.device_id,
+            "fingerprint_profile": self.profile.name,
         }
 
 

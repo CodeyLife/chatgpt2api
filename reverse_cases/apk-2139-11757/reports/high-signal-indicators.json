@@ -1,0 +1,2082 @@
+{
+  "urls": [
+    {
+      "file": "classes4.dex",
+      "value": "http://developer-api.shiyue.com/"
+    },
+    {
+      "file": "classes4.dex",
+      "value": "http://oss.api.shiyuegame.com/index.php/device/activation"
+    },
+    {
+      "file": "classes4.dex",
+      "value": "http://oss.api.shiyuegame.com/index.php/entry/step"
+    },
+    {
+      "file": "classes4.dex",
+      "value": "http://test-developer-api.shiyue.com/collect/push_click.gif"
+    },
+    {
+      "file": "classes4.dex",
+      "value": "http://test-developer-api.shiyue.com/push/deviceInfo"
+    },
+    {
+      "file": "classes4.dex",
+      "value": "http://test-developer-api.shiyue.com/push/setTag"
+    },
+    {
+      "file": "classes4.dex",
+      "value": "http://xmlpull.org/v1/doc/features.html#indent-output"
+    },
+    {
+      "file": "classes4.dex",
+      "value": "https://android.bugly.qq.com/rqd/async"
+    },
+    {
+      "file": "classes4.dex",
+      "value": "https://api-monitor.shiyuegame.com/index.php/monitor/client"
+    },
+    {
+      "file": "classes4.dex",
+      "value": "https://apks.shiyuegame.com/public/"
+    },
+    {
+      "file": "classes4.dex",
+      "value": "https://apks.shiyuegame.com/public/49f5558636f206ba5cc7fd1cf0236485"
+    },
+    {
+      "file": "classes4.dex",
+      "value": "https://apks.shiyuegame.com/public/b8e6941aece8497da79d01befb33c02a"
+    },
+    {
+      "file": "classes4.dex",
+      "value": "https://astat.bugly.cros.wr.pvp.net/:8180/rqd/async"
+    },
+    {
+      "file": "classes4.dex",
+      "value": "https://astat.bugly.qcloud.com/rqd/async"
+    },
+    {
+      "file": "classes4.dex",
+      "value": "https://collect.ux.21cn.com/collect/custom/accountMsg"
+    },
+    {
+      "file": "classes4.dex",
+      "value": "https://developer-api.shiyue.com/"
+    },
+    {
+      "file": "classes4.dex",
+      "value": "https://developer-api.shiyue.com/api/push/device/make-tags"
+    },
+    {
+      "file": "classes4.dex",
+      "value": "https://developer-api.shiyue.com/api/push/device/tag-list"
+    },
+    {
+      "file": "classes4.dex",
+      "value": "https://developer-api.shiyue.com/collect/push_click.gif"
+    },
+    {
+      "file": "classes4.dex",
+      "value": "https://developer-api.shiyue.com/push/deviceInfo"
+    },
+    {
+      "file": "classes4.dex",
+      "value": "https://developer-api.shiyue.com/push/setTag"
+    },
+    {
+      "file": "classes4.dex",
+      "value": "https://e.189.cn/sdk/agreement/detail.do?hidetop=true&appKey="
+    },
+    {
+      "file": "classes4.dex",
+      "value": "https://h.trace.qq.com/kv"
+    },
+    {
+      "file": "classes4.dex",
+      "value": "https://hasdfas.qlyxwl.com/agreement.html?is_head=2"
+    },
+    {
+      "file": "classes4.dex",
+      "value": "https://hasdfas.qlyxwl.com/agreement.html?is_head=2'"
+    },
+    {
+      "file": "classes4.dex",
+      "value": "https://hasdfas.qlyxwl.com/privacy.html?is_head=2"
+    },
+    {
+      "file": "classes4.dex",
+      "value": "https://hasdfas.qlyxwl.com/privacy.html?is_head=2'"
+    },
+    {
+      "file": "classes4.dex",
+      "value": "https://htrace.wetvinfo.com/kv"
+    },
+    {
+      "file": "classes4.dex",
+      "value": "https://ms.zzx9.cn/html/oauth/protocol.html"
+    },
+    {
+      "file": "classes4.dex",
+      "value": "https://open.e.189.cn/openapi/special/getTimeStamp.do"
+    },
+    {
+      "file": "classes4.dex",
+      "value": "https://otheve.beacon.qq.com/analytics/v2_upload"
+    },
+    {
+      "file": "classes4.dex",
+      "value": "https://othstr.beacon.qq.com/analytics/v2_upload"
+    },
+    {
+      "file": "classes4.dex",
+      "value": "https://snowflake.qq.com/ola"
+    },
+    {
+      "file": "classes4.dex",
+      "value": "https://test-developer-api.shiyue.com/api/push/device/make-tags"
+    },
+    {
+      "file": "classes4.dex",
+      "value": "https://test-developer-api.shiyue.com/api/push/device/tag-list"
+    },
+    {
+      "file": "classes4.dex",
+      "value": "https://test.snowflake.qq.com/ola"
+    },
+    {
+      "file": "classes4.dex",
+      "value": "https://tun-cos-1258344701.file.myqcloud.com/fp.js"
+    },
+    {
+      "file": "classes4.dex",
+      "value": "https://tun-cos-1258344701.file.myqcloud.com/my.html"
+    },
+    {
+      "file": "classes4.dex",
+      "value": "https://wap.cmpassport.com/resources/html/contract.html"
+    },
+    {
+      "file": "classes2.dex",
+      "value": "http://m.alipay.com/?action=h5quit"
+    },
+    {
+      "file": "classes2.dex",
+      "value": "http://mclient.alipay.com/cashier/mobilepay.htm"
+    },
+    {
+      "file": "classes2.dex",
+      "value": "http://mclient.alipay.com/home/exterfaceAssign.htm"
+    },
+    {
+      "file": "classes2.dex",
+      "value": "http://mclient.alipay.com/service/rest.htm"
+    },
+    {
+      "file": "classes2.dex",
+      "value": "http://mobilegw-1-64.test.alipay.net/mgw.htm"
+    },
+    {
+      "file": "classes2.dex",
+      "value": "http://mobilegw.aaa.alipay.net/mgw.htm"
+    },
+    {
+      "file": "classes2.dex",
+      "value": "http://mobilegw.stable.alipay.net/mgw.htm"
+    },
+    {
+      "file": "classes2.dex",
+      "value": "http://wap.cmpassport.com/resources/html/contract.html"
+    },
+    {
+      "file": "classes2.dex",
+      "value": "http://wappaygw.alipay.com/service/rest.htm"
+    },
+    {
+      "file": "classes2.dex",
+      "value": "https://api-e189.21cn.com/gw/client/accountMsg.do"
+    },
+    {
+      "file": "classes2.dex",
+      "value": "https://e.189.cn/sdk/agreement/detail.do?hidetop=true"
+    },
+    {
+      "file": "classes2.dex",
+      "value": "https://e.189.cn/sdk/agreement/detail.do?hidetop=true&appKey="
+    },
+    {
+      "file": "classes2.dex",
+      "value": "https://h5.m.taobao.com/mlapp/olist.html"
+    },
+    {
+      "file": "classes2.dex",
+      "value": "https://loggw-exsdk.alipay.com/loggw/logUpload.do"
+    },
+    {
+      "file": "classes2.dex",
+      "value": "https://mcgw.alipay.com/sdklog.do"
+    },
+    {
+      "file": "classes2.dex",
+      "value": "https://mclient.alipay.com/cashier/mobilepay.htm"
+    },
+    {
+      "file": "classes2.dex",
+      "value": "https://mclient.alipay.com/home/exterfaceAssign.htm"
+    },
+    {
+      "file": "classes2.dex",
+      "value": "https://mclient.alipay.com/home/exterfaceAssign.htm?"
+    },
+    {
+      "file": "classes2.dex",
+      "value": "https://mclient.alipay.com/service/rest.htm"
+    },
+    {
+      "file": "classes2.dex",
+      "value": "https://mobilegw.alipay.com/mgw.htm"
+    },
+    {
+      "file": "classes2.dex",
+      "value": "https://mobilegw.alipaydev.com/mgw.htm"
+    },
+    {
+      "file": "classes2.dex",
+      "value": "https://open.e.189.cn/openapi/special/getTimeStamp.do"
+    },
+    {
+      "file": "classes2.dex",
+      "value": "https://opencloud.wostore.cn/authz/resource/html/disclaimer.html?fromsdk=true"
+    },
+    {
+      "file": "classes2.dex",
+      "value": "https://render.alipay.com/p/s/i?scheme=%s"
+    },
+    {
+      "file": "classes2.dex",
+      "value": "https://wappaygw.alipay.com/home/exterfaceAssign.htm?"
+    },
+    {
+      "file": "classes2.dex",
+      "value": "https://wappaygw.alipay.com/service/rest.htm"
+    },
+    {
+      "file": "classes.dex",
+      "value": "http://192.168.96.8:8000/api/v1/account-backtrack/external/page"
+    },
+    {
+      "file": "classes.dex",
+      "value": "http://192.168.96.8:8000/api/v1/account-backtrack/report-analyze"
+    },
+    {
+      "file": "classes.dex",
+      "value": "http://192.168.96.8:8000/api/v1/account-backtrack/report-config"
+    },
+    {
+      "file": "classes.dex",
+      "value": "http://192.168.96.8:8000/api/v1/account-backtrack/role/page"
+    },
+    {
+      "file": "classes.dex",
+      "value": "http://ap-shanghai.cls.tencentcs.com/track"
+    },
+    {
+      "file": "classes.dex",
+      "value": "http://h5-pay.shiyue.com/pay/wap"
+    },
+    {
+      "file": "classes.dex",
+      "value": "http://localhost/"
+    },
+    {
+      "file": "classes.dex",
+      "value": "http://pay.shiyue.com/pay/wap"
+    },
+    {
+      "file": "classes.dex",
+      "value": "http://sdk-test.shiyuegame.com"
+    },
+    {
+      "file": "classes.dex",
+      "value": "http://sdk-test.shiyuegame.com/oaid/getPackagePem"
+    },
+    {
+      "file": "classes.dex",
+      "value": "http://sdk-test.shiyuegame.com/package/getDistributeConfig"
+    },
+    {
+      "file": "classes.dex",
+      "value": "http://sdk-test.shiyuegame.com/packageConfig/getPackageConfig"
+    },
+    {
+      "file": "classes.dex",
+      "value": "http://sdk-test.shiyuegame.com/pay/isCut"
+    },
+    {
+      "file": "classes.dex",
+      "value": "http://sdk-test.shiyuegame.com/popUp/getPopUp"
+    },
+    {
+      "file": "classes.dex",
+      "value": "http://sdk-test.shiyuegame.com/qqgroup/getQqGroupChat"
+    },
+    {
+      "file": "classes.dex",
+      "value": "http://sdk-test.shiyuegame.com/userCopy/startZone"
+    },
+    {
+      "file": "classes.dex",
+      "value": "http://sdk-test.shiyuegame.com/userCopy/statusSelect"
+    },
+    {
+      "file": "classes.dex",
+      "value": "http://sdk-test.shiyuegame.com/version/update"
+    },
+    {
+      "file": "classes.dex",
+      "value": "http://test-api-message.shiyue.com/V1/SDK/sdkBall/getUserMsgStatus"
+    },
+    {
+      "file": "classes.dex",
+      "value": "http://test-api.shiyuegame.com/index.php/monitor/client"
+    },
+    {
+      "file": "classes.dex",
+      "value": "http://test-bbs-h5.shiyue.com/forum/project/"
+    },
+    {
+      "file": "classes.dex",
+      "value": "http://test-cms-yyjl.shiyue.com?"
+    },
+    {
+      "file": "classes.dex",
+      "value": "http://test-common-api.shiyue.com/notice/isShow"
+    },
+    {
+      "file": "classes.dex",
+      "value": "http://test-developer-api.shiyue.com/collect/push_click.gif"
+    },
+    {
+      "file": "classes.dex",
+      "value": "http://test-developer-api.shiyue.com/device/info"
+    },
+    {
+      "file": "classes.dex",
+      "value": "http://test-developer-api.shiyue.com/device/report"
+    },
+    {
+      "file": "classes.dex",
+      "value": "http://test-developer-api.shiyue.com/push/deviceInfo"
+    },
+    {
+      "file": "classes.dex",
+      "value": "http://test-developer-api.shiyue.com/push/setTag"
+    },
+    {
+      "file": "classes.dex",
+      "value": "http://test-h5.shiyue.com?"
+    },
+    {
+      "file": "classes.dex",
+      "value": "http://test-pay.shiyue.com/pay/card/checkAdult"
+    },
+    {
+      "file": "classes.dex",
+      "value": "http://test-pay.shiyue.com/pay/init"
+    },
+    {
+      "file": "classes.dex",
+      "value": "http://test-pay.shiyue.com/pay/query"
+    },
+    {
+      "file": "classes.dex",
+      "value": "http://test-pay.shiyue.com/pay/submit"
+    },
+    {
+      "file": "classes.dex",
+      "value": "http://test-pay.shiyue.com/pay/wap"
+    },
+    {
+      "file": "classes.dex",
+      "value": "http://test-service-yyjl.shiyue.com?"
+    },
+    {
+      "file": "classes.dex",
+      "value": "http://test.shiyue.com/"
+    },
+    {
+      "file": "classes.dex",
+      "value": "http://upload-test.shiyuegame.com/huawei/log"
+    },
+    {
+      "file": "classes.dex",
+      "value": "http://upload-test.shiyuegame.com/index.php/monitor/client"
+    },
+    {
+      "file": "classes.dex",
+      "value": "http://upload-test.shiyuegame.com/report/log"
+    },
+    {
+      "file": "classes.dex",
+      "value": "http://upload-test.shiyuegame.com/sdkVersion/getSdkUpdate"
+    },
+    {
+      "file": "classes.dex",
+      "value": "http://upload-test.shiyuegame.com/sdkVersion/sdkUpdateReport"
+    },
+    {
+      "file": "classes.dex",
+      "value": "http://upload-test.shiyuegame.com/sdk_funnel_event.gif"
+    },
+    {
+      "file": "classes.dex",
+      "value": "http://upload-test.shiyuegame.com/upload"
+    },
+    {
+      "file": "classes.dex",
+      "value": "http://upload-test.shiyuegame.com/virtual/getPayData"
+    },
+    {
+      "file": "classes.dex",
+      "value": "http://weixin.qq.com/"
+    },
+    {
+      "file": "classes.dex",
+      "value": "https://accounts-io.xdrnd.com/authorize"
+    },
+    {
+      "file": "classes.dex",
+      "value": "https://accounts.taptap.cn/authorize"
+    },
+    {
+      "file": "classes.dex",
+      "value": "https://accounts.xdrnd.cn/authorize"
+    },
+    {
+      "file": "classes.dex",
+      "value": "https://ap-shanghai.cls.tencentcs.com/track"
+    },
+    {
+      "file": "classes.dex",
+      "value": "https://api-common.shiyue.com/notice/isShow"
+    },
+    {
+      "file": "classes.dex",
+      "value": "https://api-e189.21cn.com/gw/client/accountMsg.do"
+    },
+    {
+      "file": "classes.dex",
+      "value": "https://api-h5.shiyue.com?"
+    },
+    {
+      "file": "classes.dex",
+      "value": "https://api-message.shiyue.com/V1/SDK/sdkBall/getUserMsgStatus"
+    },
+    {
+      "file": "classes.dex",
+      "value": "https://api-monitor.shiyuegame.com/index.php/monitor/client"
+    },
+    {
+      "file": "classes.dex",
+      "value": "https://api.shiyue.com/"
+    },
+    {
+      "file": "classes.dex",
+      "value": "https://appsupport.qq.com/cgi-bin/appstage/mstats_batch_report"
+    },
+    {
+      "file": "classes.dex",
+      "value": "https://appsupport.qq.com/cgi-bin/qzapps/mapp_addapp.cgi"
+    },
+    {
+      "file": "classes.dex",
+      "value": "https://bbs.shiyue.com/forum/project/"
+    },
+    {
+      "file": "classes.dex",
+      "value": "https://cgi.connect.qq.com/qqconnectopen/openapi/policy_conf"
+    },
+    {
+      "file": "classes.dex",
+      "value": "https://cgi.qplus.com/report/report"
+    },
+    {
+      "file": "classes.dex",
+      "value": "https://cms-yyjl.shiyue.com?"
+    },
+    {
+      "file": "classes.dex",
+      "value": "https://coupon-api.shiyue.com/sdk/coupon/popUp"
+    },
+    {
+      "file": "classes.dex",
+      "value": "https://developer-api.shiyue.com"
+    },
+    {
+      "file": "classes.dex",
+      "value": "https://developer-api.shiyue.com/api/push/device/make-tags"
+    },
+    {
+      "file": "classes.dex",
+      "value": "https://developer-api.shiyue.com/api/push/device/tag-list"
+    },
+    {
+      "file": "classes.dex",
+      "value": "https://developer-api.shiyue.com/api/share/getInfo"
+    },
+    {
+      "file": "classes.dex",
+      "value": "https://developer-api.shiyue.com/collect/push_click.gif"
+    },
+    {
+      "file": "classes.dex",
+      "value": "https://developer-api.shiyue.com/collect/share_click.gif"
+    },
+    {
+      "file": "classes.dex",
+      "value": "https://developer-api.shiyue.com/collect/share_intention.gif"
+    },
+    {
+      "file": "classes.dex",
+      "value": "https://developer-api.shiyue.com/device/info"
+    },
+    {
+      "file": "classes.dex",
+      "value": "https://developer-api.shiyue.com/device/report"
+    },
+    {
+      "file": "classes.dex",
+      "value": "https://developer-api.shiyue.com/push/deviceInfo"
+    },
+    {
+      "file": "classes.dex",
+      "value": "https://developer-api.shiyue.com/push/setTag"
+    },
+    {
+      "file": "classes.dex",
+      "value": "https://device-pre.shiyue.com/device/getDeviceId"
+    },
+    {
+      "file": "classes.dex",
+      "value": "https://device.shiyue.com/device/getDeviceId"
+    },
+    {
+      "file": "classes.dex",
+      "value": "https://dypnsapi.aliyuncs.com/?"
+    },
+    {
+      "file": "classes.dex",
+      "value": "https://e.189.cn/sdk/agreement/detail.do?hidetop=true"
+    },
+    {
+      "file": "classes.dex",
+      "value": "https://e.tapdb.ap-sg.tapapis.com"
+    },
+    {
+      "file": "classes.dex",
+      "value": "https://e.tapdb.net"
+    },
+    {
+      "file": "classes.dex",
+      "value": "https://eco.taobao.com/router/rest"
+    }
+  ],
+  "domains": [
+    {
+      "file": "classes4.dex",
+      "value": "0com.bignox.app"
+    },
+    {
+      "file": "classes4.dex",
+      "value": "5trtc-sdk-log-1258344699.cos.ap-guangzhou.myqcloud.com"
+    },
+    {
+      "file": "classes4.dex",
+      "value": "Atrtc-client-log-overseas-1258344699.cos.ap-singapore.myqcloud.com"
+    },
+    {
+      "file": "classes4.dex",
+      "value": "android.bugly.qq.com/rqd/async"
+    },
+    {
+      "file": "classes4.dex",
+      "value": "android.media.metadata.COM"
+    },
+    {
+      "file": "classes4.dex",
+      "value": "android.media.metadata.ME"
+    },
+    {
+      "file": "classes4.dex",
+      "value": "api-monitor.shiyuegame.com/index.php/monitor/client"
+    },
+    {
+      "file": "classes4.dex",
+      "value": "apks.shiyuegame.com/public/"
+    },
+    {
+      "file": "classes4.dex",
+      "value": "apks.shiyuegame.com/public/49f5558636f206ba5cc7fd1cf0236485"
+    },
+    {
+      "file": "classes4.dex",
+      "value": "apks.shiyuegame.com/public/b8e6941aece8497da79d01befb33c02a"
+    },
+    {
+      "file": "classes4.dex",
+      "value": "bugly.qq.com"
+    },
+    {
+      "file": "classes4.dex",
+      "value": "cloud.tim.qq.com"
+    },
+    {
+      "file": "classes4.dex",
+      "value": "collect.ux.21cn.com/collect/custom/accountMsg"
+    },
+    {
+      "file": "classes4.dex",
+      "value": "com.bignox.app"
+    },
+    {
+      "file": "classes4.dex",
+      "value": "com.shiyue.game"
+    },
+    {
+      "file": "classes4.dex",
+      "value": "com.tencent.bugly.agent.Game"
+    },
+    {
+      "file": "classes4.dex",
+      "value": "developer-api.shiyue.com/"
+    },
+    {
+      "file": "classes4.dex",
+      "value": "developer-api.shiyue.com/api/push/device/make-tags"
+    },
+    {
+      "file": "classes2.dex",
+      "value": "-com.alipay.android.app"
+    },
+    {
+      "file": "classes2.dex",
+      "value": "2Fqr.alipay.com"
+    },
+    {
+      "file": "classes2.dex",
+      "value": "2mobileclientgw.alipaydev.com/cashier/mobilepay.htm"
+    },
+    {
+      "file": "classes2.dex",
+      "value": "Gcom.bumptech.glide.load.resource.bitmap.BitmapEncoder.Com"
+    },
+    {
+      "file": "classes2.dex",
+      "value": "Hcom.bumptech.glide.load.resource.bitmap.BitmapEncoder.Com"
+    },
+    {
+      "file": "classes2.dex",
+      "value": "api-e189.21cn.com/gw/client/accountMsg.do"
+    },
+    {
+      "file": "classes2.dex",
+      "value": "com.alipay.android.app"
+    },
+    {
+      "file": "classes2.dex",
+      "value": "com.alipay.mobile.com"
+    },
+    {
+      "file": "classes2.dex",
+      "value": "google.golang.org/protobuf/types/known/apipb"
+    },
+    {
+      "file": "classes2.dex",
+      "value": "h5.m.taobao.com/mlapp/olist.html"
+    },
+    {
+      "file": "classes2.dex",
+      "value": "loggw-exsdk.alipay.com/loggw/logUpload.do"
+    },
+    {
+      "file": "classes2.dex",
+      "value": "m.alipay.com/?action=h5quit"
+    },
+    {
+      "file": "classes2.dex",
+      "value": "mcgw.alipay.com/sdklog.do"
+    },
+    {
+      "file": "classes2.dex",
+      "value": "mclient.alipay.com/cashier/mobilepay.htm"
+    },
+    {
+      "file": "classes2.dex",
+      "value": "mclient.alipay.com/home/exterfaceAssign.htm"
+    },
+    {
+      "file": "classes2.dex",
+      "value": "mclient.alipay.com/home/exterfaceAssign.htm?"
+    },
+    {
+      "file": "classes2.dex",
+      "value": "mclient.alipay.com/service/rest.htm"
+    },
+    {
+      "file": "classes2.dex",
+      "value": "mobilegw-1-64.test.alipay.net/mgw.htm"
+    },
+    {
+      "file": "classes2.dex",
+      "value": "mobilegw.aaa.alipay.net/mgw.htm"
+    },
+    {
+      "file": "classes2.dex",
+      "value": "mobilegw.alipay.com/mgw.htm"
+    },
+    {
+      "file": "classes2.dex",
+      "value": "mobilegw.alipaydev.com/mgw.htm"
+    },
+    {
+      "file": "classes2.dex",
+      "value": "mobilegw.stable.alipay.net/mgw.htm"
+    },
+    {
+      "file": "classes2.dex",
+      "value": "open.e.189.cn/openapi/special/getTimeStamp.do"
+    },
+    {
+      "file": "classes2.dex",
+      "value": "render.alipay.com/p/s/i?scheme=%s"
+    },
+    {
+      "file": "classes.dex",
+      "value": "-api.shiyue.com/account/activationAccountCheck"
+    },
+    {
+      "file": "classes.dex",
+      "value": "-api.shiyue.com/account/activationTestCheck_v2"
+    },
+    {
+      "file": "classes.dex",
+      "value": "0ad-bi.shiyue.com/api/v1/agent/unified-event-push"
+    },
+    {
+      "file": "classes.dex",
+      "value": "0api.shiyue.com/account/activationAccountCheck_v2"
+    },
+    {
+      "file": "classes.dex",
+      "value": "1com.qihoo360.mobilesafe.ui.index.App"
+    },
+    {
+      "file": "classes.dex",
+      "value": "1sdk.shiyuegame.com/packageConfig/getPackageConfig"
+    },
+    {
+      "file": "classes.dex",
+      "value": "2Fqm.qq.com"
+    },
+    {
+      "file": "classes.dex",
+      "value": "3virtual-upload.shiyue.com/gin/v1/virtual-events/get"
+    },
+    {
+      "file": "classes.dex",
+      "value": "5virtual-upload.shiyue.com/gin/v1/virtual-events/check"
+    },
+    {
+      "file": "classes.dex",
+      "value": "6api-message.shiyue.com/V1/SDK/sdkBall/getUserMsgStatus"
+    },
+    {
+      "file": "classes.dex",
+      "value": "6virtual-upload.shiyue.com/gin/v1/virtual-events/update"
+    },
+    {
+      "file": "classes.dex",
+      "value": "7com.taptap.sdk.com"
+    },
+    {
+      "file": "classes.dex",
+      "value": "7com.taptap.sdk.common.net"
+    },
+    {
+      "file": "classes.dex",
+      "value": "8com.taptap.sdk.common.net"
+    },
+    {
+      "file": "classes.dex",
+      "value": "8com.taptap.sdk.kit.internal.enginebridge.command.Com"
+    },
+    {
+      "file": "classes.dex",
+      "value": "Acom.taptap.sdk.db.biz.game"
+    },
+    {
+      "file": "classes.dex",
+      "value": "Acom.taptap.sdk.update.net"
+    },
+    {
+      "file": "classes.dex",
+      "value": "Avirtual-upload.shiyue.com/gin/v1/virtual-events/update_web_charge"
+    },
+    {
+      "file": "classes.dex",
+      "value": "Bcom.taptap.sdk.com"
+    },
+    {
+      "file": "classes.dex",
+      "value": "Bvirtual-upload.shiyue.com/gin/v1/virtual_debug/check_virtual_debug"
+    },
+    {
+      "file": "classes.dex",
+      "value": "Ccom.taptap.sdk.com"
+    },
+    {
+      "file": "classes.dex",
+      "value": "Evirtual-upload.shiyue.com/gin/v1/virtual-events/check_register_upload"
+    },
+    {
+      "file": "classes.dex",
+      "value": "Fcom.taptap.sdk.com"
+    },
+    {
+      "file": "classes.dex",
+      "value": "Gcom.taptap.sdk.com"
+    },
+    {
+      "file": "classes.dex",
+      "value": "Hcom.taptap.sdk.com"
+    },
+    {
+      "file": "classes.dex",
+      "value": "Jcom.taptap.sdk.com"
+    },
+    {
+      "file": "classes.dex",
+      "value": "Ncom.taptap.sdk.db.biz.game"
+    },
+    {
+      "file": "classes.dex",
+      "value": "Pcom.taptap.sdk.db.biz.game"
+    },
+    {
+      "file": "classes.dex",
+      "value": "Qcom.taptap.sdk.db.biz.game"
+    },
+    {
+      "file": "classes.dex",
+      "value": "accounts-io.xdrnd.com/authorize"
+    },
+    {
+      "file": "classes.dex",
+      "value": "accounts.taptap.cn/authorize"
+    },
+    {
+      "file": "classes.dex",
+      "value": "accounts.xdrnd.cn/authorize"
+    },
+    {
+      "file": "classes.dex",
+      "value": "alipay.trade.app"
+    },
+    {
+      "file": "classes.dex",
+      "value": "ap-shanghai.cls.tencentcs.com/track"
+    },
+    {
+      "file": "classes.dex",
+      "value": "api-common.shiyue.com/notice/isShow"
+    },
+    {
+      "file": "classes.dex",
+      "value": "api-e189.21cn.com/gw/client/accountMsg.do"
+    },
+    {
+      "file": "classes.dex",
+      "value": "api-h5.shiyue.com"
+    },
+    {
+      "file": "classes.dex",
+      "value": "api-message.shiyue.com/V1/SDK/sdkBall/getUserMsgStatus"
+    },
+    {
+      "file": "classes.dex",
+      "value": "api-monitor.shiyuegame.com/index.php/monitor/client"
+    },
+    {
+      "file": "classes.dex",
+      "value": "api.shiyue.com/"
+    },
+    {
+      "file": "classes.dex",
+      "value": "api.shiyue.com/account/activationTestCheck"
+    },
+    {
+      "file": "classes.dex",
+      "value": "api.shiyue.com/account/alipayBind"
+    },
+    {
+      "file": "classes.dex",
+      "value": "api.shiyue.com/account/alipayGetOauthStr"
+    },
+    {
+      "file": "res/layout/custom_port_dialog_action_bar.xml",
+      "value": "--com.shiyue.game"
+    },
+    {
+      "file": "res/layout/custom_port_dialog_action_bar.xml",
+      "value": "com.shiyue.game"
+    },
+    {
+      "file": "res/layout/lelangf_activity_a_key_to_login.xml",
+      "value": "com.shiyue.game"
+    },
+    {
+      "file": "res/layout/lelangf_activity_account_login.xml",
+      "value": "com.shiyue.game"
+    },
+    {
+      "file": "res/layout/lelangf_activity_account_register.xml",
+      "value": "com.shiyue.game"
+    },
+    {
+      "file": "res/layout/lelangf_activity_activecode.xml",
+      "value": "com.shiyue.game"
+    },
+    {
+      "file": "res/layout/lelangf_activity_agreement_remind.xml",
+      "value": "com.shiyue.game"
+    },
+    {
+      "file": "res/layout/lelangf_activity_agreement_remind_land.xml",
+      "value": "com.shiyue.game"
+    },
+    {
+      "file": "res/layout/lelangf_activity_analysis.xml",
+      "value": "11com.shiyue.game"
+    },
+    {
+      "file": "res/layout/lelangf_activity_find_pwd.xml",
+      "value": "com.shiyue.game"
+    },
+    {
+      "file": "res/layout/lelangf_activity_main_a_key_to_login.xml",
+      "value": "--com.shiyue.game"
+    },
+    {
+      "file": "res/layout/lelangf_activity_main_a_key_to_login.xml",
+      "value": "com.shiyue.game"
+    },
+    {
+      "file": "res/layout/lelangf_activity_main_login.xml",
+      "value": "--com.shiyue.game"
+    },
+    {
+      "file": "res/layout/lelangf_activity_main_login.xml",
+      "value": "com.shiyue.game"
+    },
+    {
+      "file": "res/layout/lelangf_activity_main_login_only.xml",
+      "value": "--com.shiyue.game"
+    },
+    {
+      "file": "res/layout/lelangf_activity_main_login_only.xml",
+      "value": "com.shiyue.game"
+    },
+    {
+      "file": "res/layout/lelangf_activity_modify_pwd.xml",
+      "value": "com.shiyue.game"
+    },
+    {
+      "file": "res/layout/lelangf_activity_new_a_key_to_login.xml",
+      "value": "com.shiyue.game"
+    },
+    {
+      "file": "res/layout/lelangf_activity_new_web_pay.xml",
+      "value": "com.shiyue.game"
+    },
+    {
+      "file": "res/layout/lelangf_activity_new_web_pay_portrait.xml",
+      "value": "com.shiyue.game"
+    },
+    {
+      "file": "res/layout/lelangf_activity_one_key_to_binding.xml",
+      "value": "--com.shiyue.game"
+    },
+    {
+      "file": "res/layout/lelangf_activity_one_key_to_binding.xml",
+      "value": "com.shiyue.game"
+    },
+    {
+      "file": "res/layout/lelangf_activity_one_key_to_binding_gift.xml",
+      "value": "--com.shiyue.game"
+    },
+    {
+      "file": "res/layout/lelangf_activity_one_key_to_binding_gift.xml",
+      "value": "com.shiyue.game"
+    },
+    {
+      "file": "res/layout/lelangf_activity_phone_binding.xml",
+      "value": "com.shiyue.game"
+    },
+    {
+      "file": "res/layout/lelangf_activity_phone_register.xml",
+      "value": "com.shiyue.game"
+    },
+    {
+      "file": "res/layout/lelangf_activity_qr.xml",
+      "value": "com.shiyue.game"
+    },
+    {
+      "file": "res/layout/lelangf_activity_real_name.xml",
+      "value": "com.shiyue.game"
+    },
+    {
+      "file": "res/layout/lelangf_activity_real_name_hint.xml",
+      "value": "com.shiyue.game"
+    },
+    {
+      "file": "res/layout/lelangf_activity_real_name_nogrowup_hint.xml",
+      "value": "com.shiyue.game"
+    },
+    {
+      "file": "res/layout/lelangf_activity_red_center.xml",
+      "value": "99com.shiyue.game"
+    },
+    {
+      "file": "res/layout/lelangf_activity_scan_login_switch.xml",
+      "value": "--com.shiyue.game"
+    },
+    {
+      "file": "res/layout/lelangf_activity_scan_login_switch.xml",
+      "value": "com.shiyue.game"
+    },
+    {
+      "file": "res/layout/lelangf_activity_scanner.xml",
+      "value": "com.shiyue.game"
+    },
+    {
+      "file": "res/layout/lelangf_activity_smsregister.xml",
+      "value": "com.shiyue.game"
+    },
+    {
+      "file": "res/layout/lelangf_activity_verify_code.xml",
+      "value": "com.shiyue.game"
+    },
+    {
+      "file": "res/layout/lelangf_activity_wx_phone_binding.xml",
+      "value": "com.shiyue.game"
+    },
+    {
+      "file": "res/layout/lelangf_alter_dialog.xml",
+      "value": "com.shiyue.game"
+    },
+    {
+      "file": "res/layout/lelangf_custom_port_dialog_action_bar.xml",
+      "value": "--com.shiyue.game"
+    },
+    {
+      "file": "res/layout/lelangf_dialog_back_game.xml",
+      "value": "com.shiyue.game"
+    },
+    {
+      "file": "res/layout/lelangf_dialog_base.xml",
+      "value": "com.shiyue.game"
+    },
+    {
+      "file": "res/layout/lelangf_dialog_internal_experience.xml",
+      "value": "com.shiyue.game"
+    },
+    {
+      "file": "res/layout/lelangf_dialog_message.xml",
+      "value": "com.shiyue.game"
+    },
+    {
+      "file": "res/layout/lelangf_en_floating_view.xml",
+      "value": "com.shiyue.game"
+    },
+    {
+      "file": "res/layout/lelangf_forget_dialog.xml",
+      "value": "com.shiyue.game"
+    },
+    {
+      "file": "res/layout/lelangf_gold_activity_account_login.xml",
+      "value": "com.shiyue.game"
+    },
+    {
+      "file": "res/layout/lelangf_gold_activity_account_register.xml",
+      "value": "com.shiyue.game"
+    },
+    {
+      "file": "res/layout/lelangf_gold_activity_activecode.xml",
+      "value": "com.shiyue.game"
+    },
+    {
+      "file": "res/layout/lelangf_gold_activity_main_login.xml",
+      "value": "--com.shiyue.game"
+    },
+    {
+      "file": "res/layout/lelangf_gold_activity_main_login.xml",
+      "value": "com.shiyue.game"
+    },
+    {
+      "file": "res/layout/lelangf_gold_activity_phone_binding.xml",
+      "value": "com.shiyue.game"
+    },
+    {
+      "file": "res/layout/lelangf_gold_activity_qr.xml",
+      "value": "com.shiyue.game"
+    },
+    {
+      "file": "res/layout/lelangf_gold_activity_real_name.xml",
+      "value": "com.shiyue.game"
+    },
+    {
+      "file": "res/layout/lelangf_gold_activity_real_name_nogrowup_hint.xml",
+      "value": "com.shiyue.game"
+    },
+    {
+      "file": "res/layout/lelangf_gold_activity_scan_login_switch.xml",
+      "value": "--com.shiyue.game"
+    },
+    {
+      "file": "res/layout/lelangf_gold_activity_scan_login_switch.xml",
+      "value": "com.shiyue.game"
+    },
+    {
+      "file": "res/layout/lelangf_gold_activity_smsregister.xml",
+      "value": "com.shiyue.game"
+    },
+    {
+      "file": "res/layout/lelangf_gold_activity_verify_code.xml",
+      "value": "com.shiyue.game"
+    },
+    {
+      "file": "res/layout/lelangf_gold_dialog_message.xml",
+      "value": "com.shiyue.game"
+    },
+    {
+      "file": "res/layout/lelangf_gold_forget_dialog.xml",
+      "value": "com.shiyue.game"
+    },
+    {
+      "file": "res/layout/lelangf_gold_title_layout.xml",
+      "value": "--com.shiyue.game"
+    },
+    {
+      "file": "res/layout/lelangf_my_view.xml",
+      "value": "com.shiyue.game"
+    },
+    {
+      "file": "res/layout/lelangf_phone_login_activity.xml",
+      "value": "com.shiyue.game"
+    },
+    {
+      "file": "res/layout/lelangf_real_name_failure.xml",
+      "value": "com.shiyue.game"
+    },
+    {
+      "file": "res/layout/lelangf_realnamedialog.xml",
+      "value": "com.shiyue.game"
+    },
+    {
+      "file": "res/layout/lelangf_red_view.xml",
+      "value": "99com.shiyue.game"
+    },
+    {
+      "file": "res/layout/lelangf_title_layout.xml",
+      "value": "--com.shiyue.game"
+    }
+  ],
+  "ips": [
+    {
+      "file": "classes4.dex",
+      "value": "1.2.13.1"
+    },
+    {
+      "file": "classes4.dex",
+      "value": "127.0.0.1"
+    },
+    {
+      "file": "classes4.dex",
+      "value": "4.2.80.6"
+    },
+    {
+      "file": "classes2.dex",
+      "value": "127.0.0.1"
+    },
+    {
+      "file": "classes.dex",
+      "value": "123.125.99.31"
+    },
+    {
+      "file": "classes.dex",
+      "value": "127.0.0.1"
+    },
+    {
+      "file": "classes.dex",
+      "value": "192.168.96.8:8000"
+    }
+  ],
+  "keywords": [
+    {
+      "file": "classes5.dex",
+      "value": "DEBUG"
+    },
+    {
+      "file": "classes5.dex",
+      "value": "\"Landroid/database/ContentObserver;"
+    },
+    {
+      "file": "classes5.dex",
+      "value": "*Lcom/vivo/identifier/IdentifierIdObserver;"
+    },
+    {
+      "file": "classes5.dex",
+      "value": "Ljavax/crypto/SecretKey;"
+    },
+    {
+      "file": "classes5.dex",
+      "value": "VMS_SDK_Observer"
+    },
+    {
+      "file": "classes5.dex",
+      "value": "authority"
+    },
+    {
+      "file": "classes5.dex",
+      "value": "initObserver"
+    },
+    {
+      "file": "classes5.dex",
+      "value": "isDebuggable"
+    },
+    {
+      "file": "classes5.dex",
+      "value": "mAAIDObserver"
+    },
+    {
+      "file": "classes5.dex",
+      "value": "mDebug"
+    },
+    {
+      "file": "classes5.dex",
+      "value": "mOAIDObserver"
+    },
+    {
+      "file": "classes5.dex",
+      "value": "mVAIDObserver"
+    },
+    {
+      "file": "classes5.dex",
+      "value": "msaoaidauth"
+    },
+    {
+      "file": "classes5.dex",
+      "value": "setDebug"
+    },
+    {
+      "file": "classes5.dex",
+      "value": "setDebuggable"
+    },
+    {
+      "file": "classes5.dex",
+      "value": "writeInterfaceToken"
+    },
+    {
+      "file": "classes3.dex",
+      "value": "Server: TooTallNate Java-WebSocket"
+    },
+    {
+      "file": "classes3.dex",
+      "value": " HTTP/1.1"
+    },
+    {
+      "file": "classes3.dex",
+      "value": " To see where this was allocated, set the OkHttpClient logger level to FINE: Logger.getLogger(OkHttpClient.class.getName()).setLevel(Level.FINE);"
+    },
+    {
+      "file": "classes3.dex",
+      "value": " authParams="
+    },
+    {
+      "file": "classes3.dex",
+      "value": " hostAddress="
+    },
+    {
+      "file": "classes3.dex",
+      "value": "# must retain the same host and port"
+    },
+    {
+      "file": "classes3.dex",
+      "value": ", payloadlength:[pos:"
+    },
+    {
+      "file": "classes3.dex",
+      "value": ", url="
+    },
+    {
+      "file": "classes3.dex",
+      "value": ")110 HttpURLConnection \"Response is stale\""
+    },
+    {
+      "file": "classes3.dex",
+      "value": ",113 HttpURLConnection \"Heuristic expiration\""
+    },
+    {
+      "file": "classes3.dex",
+      "value": "500 Internal Server Error"
+    },
+    {
+      "file": "classes3.dex",
+      "value": ":authority"
+    },
+    {
+      "file": "classes3.dex",
+      "value": "; httponly"
+    },
+    {
+      "file": "classes3.dex",
+      "value": "OALPN callback dropped: HTTP/2 is disabled. Is alpn-boot on the boot class path?"
+    },
+    {
+      "file": "classes3.dex",
+      "value": "AndroidTrustRootIndex"
+    },
+    {
+      "file": "classes3.dex",
+      "value": "Authenticator.java"
+    },
+    {
+      "file": "classes3.dex",
+      "value": "Authorization"
+    },
+    {
+      "file": "classes3.dex",
+      "value": "BasicTrustRootIndex.java"
+    },
+    {
+      "file": "classes3.dex",
+      "value": "CallServerInterceptor.java"
+    },
+    {
+      "file": "classes3.dex",
+      "value": "Cannot retry streamed HTTP body"
+    },
+    {
+      "file": "classes3.dex",
+      "value": "$Closing due to internal server error"
+    },
+    {
+      "file": "classes3.dex",
+      "value": "2Closing due to protocol error: wrong http function"
+    },
+    {
+      "file": "classes3.dex",
+      "value": "$CustomSSLWebSocketServerFactory.java"
+    },
+    {
+      "file": "classes3.dex",
+      "value": "DEBUG_INT"
+    },
+    {
+      "file": "classes3.dex",
+      "value": "%DefaultSSLWebSocketServerFactory.java"
+    },
+    {
+      "file": "classes3.dex",
+      "value": "\"DefaultWebSocketServerFactory.java"
+    },
+    {
+      "file": "classes3.dex",
+      "value": "$Expected HTTP 101 response but was '"
+    },
+    {
+      "file": "classes3.dex",
+      "value": "<Expected URL scheme 'http' or 'https' but no colon was found"
+    },
+    {
+      "file": "classes3.dex",
+      "value": "/Expected URL scheme 'http' or 'https' but was '"
+    },
+    {
+      "file": "classes3.dex",
+      "value": "!Failed to authenticate with proxy"
+    },
+    {
+      "file": "classes3.dex",
+      "value": ",H2_PRIOR_KNOWLEDGE cannot be used with HTTPS"
+    },
+    {
+      "file": "classes3.dex",
+      "value": "HTTP "
+    },
+    {
+      "file": "classes3.dex",
+      "value": "HTTP/1."
+    },
+    {
+      "file": "classes3.dex",
+      "value": "HTTP/1.0"
+    },
+    {
+      "file": "classes3.dex",
+      "value": "HTTP/1.1"
+    },
+    {
+      "file": "classes3.dex",
+      "value": "HTTP/1.1 "
+    },
+    {
+      "file": "classes3.dex",
+      "value": "HTTP/1.1 101 "
+    },
+    {
+      "file": "classes3.dex",
+      "value": "HTTPS"
+    },
+    {
+      "file": "classes3.dex",
+      "value": "HTTP_1_0"
+    },
+    {
+      "file": "classes3.dex",
+      "value": "HTTP_1_1"
+    },
+    {
+      "file": "classes3.dex",
+      "value": "HTTP_1_1_REQUIRED"
+    },
+    {
+      "file": "classes3.dex",
+      "value": "HTTP_2"
+    },
+    {
+      "file": "classes3.dex",
+      "value": "HTTP_2_SKIPPED_REQUEST_HEADERS"
+    },
+    {
+      "file": "classes3.dex",
+      "value": "HTTP_2_SKIPPED_RESPONSE_HEADERS"
+    },
+    {
+      "file": "classes3.dex",
+      "value": "HTTP_CONTINUE"
+    },
+    {
+      "file": "classes3.dex",
+      "value": "HTTP_PERM_REDIRECT"
+    },
+    {
+      "file": "classes3.dex",
+      "value": "HTTP_TEMP_REDIRECT"
+    },
+    {
+      "file": "classes3.dex",
+      "value": "HandshakeImpl1Server.java"
+    },
+    {
+      "file": "classes3.dex",
+      "value": "Hostname "
+    },
+    {
+      "file": "classes3.dex",
+      "value": "Http1Codec.java"
+    },
+    {
+      "file": "classes3.dex",
+      "value": "Http2.java"
+    },
+    {
+      "file": "classes3.dex",
+      "value": "Http2Codec.java"
+    },
+    {
+      "file": "classes3.dex",
+      "value": "%Http2Connection.Listener failure for "
+    },
+    {
+      "file": "classes3.dex",
+      "value": "Http2Connection.java"
+    },
+    {
+      "file": "classes3.dex",
+      "value": "Http2Reader.java"
+    },
+    {
+      "file": "classes3.dex",
+      "value": "Http2Stream.java"
+    },
+    {
+      "file": "classes3.dex",
+      "value": "Http2Writer.java"
+    },
+    {
+      "file": "classes3.dex",
+      "value": "HttpCodec.java"
+    },
+    {
+      "file": "classes3.dex",
+      "value": "HttpDate.java"
+    },
+    {
+      "file": "classes3.dex",
+      "value": "HttpHeaders.java"
+    },
+    {
+      "file": "classes3.dex",
+      "value": "HttpMethod.java"
+    },
+    {
+      "file": "classes3.dex",
+      "value": "HttpUrl.java"
+    },
+    {
+      "file": "classes3.dex",
+      "value": "INVALID_HOST"
+    },
+    {
+      "file": "classes4.dex",
+      "value": "! From appkey:%s ----- "
+    },
+    {
+      "file": "classes4.dex",
+      "value": "< Welcome to QmSDK! Your AppKey is: %s SDK_VERSION is: %s>"
+    },
+    {
+      "file": "classes4.dex",
+      "value": "accessUrl:"
+    },
+    {
+      "file": "classes4.dex",
+      "value": "  mHost="
+    },
+    {
+      "file": "classes4.dex",
+      "value": "  mMediaSessionToken="
+    },
+    {
+      "file": "classes4.dex",
+      "value": "  mRootHints="
+    },
+    {
+      "file": "classes4.dex",
+      "value": "  mRootId="
+    },
+    {
+      "file": "classes4.dex",
+      "value": " , new url: "
+    },
+    {
+      "file": "classes4.dex",
+      "value": " Http response code :"
+    },
+    {
+      "file": "classes4.dex",
+      "value": "5 Process Summary (From: android.os.Debug.MemoryInfo)"
+    },
+    {
+      "file": "classes4.dex",
+      "value": ") integer primary key autoincrement, _dUrl"
+    },
+    {
+      "file": "classes4.dex",
+      "value": " is not authorized for package "
+    },
+    {
+      "file": "classes4.dex",
+      "value": " serverName : "
+    },
+    {
+      "file": "classes4.dex",
+      "value": "B# You can use Bugly(http:\\\\bugly.qq.com) to get more Crash Detail!"
+    },
+    {
+      "file": "classes4.dex",
+      "value": "$ServerProvider"
+    },
+    {
+      "file": "classes4.dex",
+      "value": "+$SwitchMap$com$google$gson$stream$JsonToken"
+    },
+    {
+      "file": "classes4.dex",
+      "value": "${urlPrivacy}"
+    },
+    {
+      "file": "classes4.dex",
+      "value": "${urlUser}"
+    },
+    {
+      "file": "classes4.dex",
+      "value": "&appkey="
+    },
+    {
+      "file": "classes4.dex",
+      "value": "&token"
+    },
+    {
+      "file": "classes4.dex",
+      "value": "&x-cos-security-token="
+    },
+    {
+      "file": "classes4.dex",
+      "value": "Rooted: '"
+    },
+    {
+      "file": "classes4.dex",
+      "value": ")'x-cos-copy-source-server-side-encryption"
+    },
+    {
+      "file": "classes4.dex",
+      "value": "(((?:(?i:http|https|rtsp)://(?:(?:[a-zA-Z0-9\\$\\-\\_\\.\\+\\!\\*\\'\\(\\)\\,\\;\\?\\&\\=]|(?:\\%[a-fA-F0-9]{2})){1,64}(?:\\:(?:[a-zA-Z0-9\\$\\-\\_\\.\\+\\!\\*\\'\\(\\)\\,\\;\\?\\&\\=]|(?:\\%[a-fA-F0-9]{2})){1,25})?\\@)?)?(?:"
+    },
+    {
+      "file": "classes4.dex",
+      "value": "((?:\\b|$|^)(?:(?:(?i:http|https|rtsp)://(?:(?:[a-zA-Z0-9\\$\\-\\_\\.\\+\\!\\*\\'\\(\\)\\,\\;\\?\\&\\=]|(?:\\%[a-fA-F0-9]{2})){1,64}(?:\\:(?:[a-zA-Z0-9\\$\\-\\_\\.\\+\\!\\*\\'\\(\\)\\,\\;\\?\\&\\=]|(?:\\%[a-fA-F0-9]{2})){1,25})?\\@)?)(?:"
+    },
+    {
+      "file": "classes4.dex",
+      "value": "e|bing|bingo|bio|biz|black|blackfriday|bloomberg|blue|bms|bmw|bnl|bnpparibas|boats|bom|bond|boo|boots|boutique|bradesco|bridgestone|broadway|broker|brother|brussels|budapest|build|builders|business|buzz|bzh|b[abdefghijmnorstvwyz])|(?:cab|ca"
+    },
+    {
+      "file": "classes4.dex",
+      "value": "sion|eus|events|everbank|exchange|expert|exposed|express|e[cegrstu])|(?:fage|fail|fairwinds|faith|family|fan|fans|farm|fashion|feedback|ferrero|film|final|finance|financial|firmdale|fish|fishing|fit|fitness|flights|florist|flowers|flsmidth|"
+    },
+    {
+      "file": "classes4.dex",
+      "value": "host|hosting|hoteles|hotmail|house|how|hsbc|hyundai|h[kmnrtu])|(?:ibm|icbc|ice|icu|ifm|iinet|immo|immobilien|industries|infiniti|info|ing|ink|institute|insure|int|international|investments|ipiranga|irish|ist|istanbul|itau|iwc|i[delmnoqrst])"
+    },
+    {
+      "file": "classes4.dex",
+      "value": "|bio|biz|black|blackfriday|bloomberg|blue|bms|bmw|bnl|bnpparibas|boats|bom|bond|boo|boots|boutique|bradesco|bridgestone|broadway|broker|brother|brussels|budapest|build|builders|business|buzz|bzh|b[abdefghijmnorstvwyz])|(?:cab|cafe|cal|camer"
+    },
+    {
+      "file": "classes4.dex",
+      "value": "nts|everbank|exchange|expert|exposed|express|e[cegrstu])|(?:fage|fail|fairwinds|faith|family|fan|fans|farm|fashion|feedback|ferrero|film|final|finance|financial|firmdale|fish|fishing|fit|fitness|flights|florist|flowers|flsmidth|fly|foo|foot"
+    },
+    {
+      "file": "classes4.dex",
+      "value": "gop|gov|grainger|graphics|gratis|green|gripe|group|gucci|guge|guide|guitars|guru|g[abdefghilmnpqrstuwy])|(?:hamburg|hangout|haus|healthcare|help|here|hermes|hiphop|hitachi|hiv|hockey|holdings|holiday|homedepot|homes|honda|horse|host|hosting"
+    },
+    {
+      "file": "classes4.dex",
+      "value": "o|biz|black|blackfriday|bloomberg|blue|bms|bmw|bnl|bnpparibas|boats|bom|bond|boo|boots|boutique|bradesco|bridgestone|broadway|broker|brother|brussels|budapest|build|builders|business|buzz|bzh|b[abdefghijmnorstvwyz])|(?:cab|cafe|cal|camera|c"
+    },
+    {
+      "file": "classes4.dex",
+      "value": "|everbank|exchange|expert|exposed|express|e[cegrstu])|(?:fage|fail|fairwinds|faith|family|fan|fans|farm|fashion|feedback|ferrero|film|final|finance|financial|firmdale|fish|fishing|fit|fitness|flights|florist|flowers|flsmidth|fly|foo|footbal"
+    },
+    {
+      "file": "classes4.dex",
+      "value": "|gov|grainger|graphics|gratis|green|gripe|group|gucci|guge|guide|guitars|guru|g[abdefghilmnpqrstuwy])|(?:hamburg|hangout|haus|healthcare|help|here|hermes|hiphop|hitachi|hiv|hockey|holdings|holiday|homedepot|homes|honda|horse|host|hosting|ho"
+    },
+    {
+      "file": "classes4.dex",
+      "value": "(?:\\b|^)((?:(http|https|Http|Https|rtsp|Rtsp):\\/\\/(?:(?:[a-zA-Z0-9\\$\\-\\_\\.\\+\\!\\*\\'\\(\\)\\,\\;\\?\\&\\=]|(?:\\%[a-fA-F0-9]{2})){1,64}(?:\\:(?:[a-zA-Z0-9\\$\\-\\_\\.\\+\\!\\*\\'\\(\\)\\,\\;\\?\\&\\=]|(?:\\%[a-fA-F0-9]{2})){1,25})?\\@)?)?(?:"
+    },
+    {
+      "file": "classes4.dex",
+      "value": "(?i:http|https|rtsp)://"
+    },
+    {
+      "file": "classes4.dex",
+      "value": "8(appKey: %s) Qm load successfully from cache, detail: %s"
+    },
+    {
+      "file": "classes4.dex",
+      "value": "(appKey: %s)Qm"
+    },
+    {
+      "file": "classes4.dex",
+      "value": "(root)"
+    },
+    {
+      "file": "classes4.dex",
+      "value": "5)Do send failed. Fail to create http connection. ex= "
+    },
+    {
+      "file": "classes4.dex",
+      "value": ")Parse host error. host:"
+    },
+    {
+      "file": "classes4.dex",
+      "value": "*)Send request failed. Invalid request url("
+    },
+    {
+      "file": "classes4.dex",
+      "value": "1)createConnectionUseCustomHttpDNS failed. error: "
+    },
+    {
+      "file": "classes4.dex",
+      "value": "))upload file failed. Invalid request url("
+    },
+    {
+      "file": "classes4.dex",
+      "value": ", appKey='"
+    },
+    {
+      "file": "classes4.dex",
+      "value": ", configHost='"
+    },
+    {
+      "file": "classes4.dex",
+      "value": ", for type token: "
+    },
+    {
+      "file": "classes4.dex",
+      "value": ", httpAdapter="
+    },
+    {
+      "file": "classes4.dex",
+      "value": ", mainAppKey='"
+    },
+    {
+      "file": "classes4.dex",
+      "value": ", serverName='"
+    },
+    {
+      "file": "classes4.dex",
+      "value": ", sessionToken='"
+    },
+    {
+      "file": "classes4.dex",
+      "value": ", tmpSecretId='"
+    },
+    {
+      "file": "classes2.dex",
+      "value": "type_url"
+    },
+    {
+      "file": "classes2.dex",
+      "value": "request_type_url"
+    },
+    {
+      "file": "classes2.dex",
+      "value": "response_type_url"
+    },
+    {
+      "file": "classes2.dex",
+      "value": " call GlideException#logRootCauses(String) for more detail"
+    },
+    {
+      "file": "classes2.dex",
+      "value": "server_streaming"
+    },
+    {
+      "file": "classes2.dex",
+      "value": "( is not attached to any Fragment or host"
+    },
+    {
+      "file": "classes2.dex",
+      "value": " not attached to a host."
+    },
+    {
+      "file": "classes2.dex",
+      "value": " setDebugName "
+    },
+    {
+      "file": "classes2.dex",
+      "value": "*\"&pay_channel_id=\"alipay_sdk\"&bizcontext=\""
+    },
+    {
+      "file": "classes2.dex",
+      "value": "=$SwitchMap$androidx$constraintlayout$core$parser$CLToken$Type"
+    },
+    {
+      "file": "classes2.dex",
+      "value": "4&ap_framework_sceneId=1300&chInfo=ch_outerUrl&appId="
+    },
+    {
+      "file": "classes2.dex",
+      "value": "&callBackUrl="
+    },
+    {
+      "file": "classes2.dex",
+      "value": "&callBackUrl=\""
+    },
+    {
+      "file": "classes2.dex",
+      "value": "&call_back_url=\""
+    },
+    {
+      "file": "classes2.dex",
+      "value": "&pay_channel_id=\"alipay_sdk\""
+    },
+    {
+      "file": "classes2.dex",
+      "value": "&return_url="
+    },
+    {
+      "file": "classes2.dex",
+      "value": "&return_url=\""
+    },
+    {
+      "file": "classes2.dex",
+      "value": "    if (window.AlipayJSBridge) {"
+    },
+    {
+      "file": "classes2.dex",
+      "value": "    function alipayjsbridgeFunc(url) {"
+    },
+    {
+      "file": "classes2.dex",
+      "value": "        iframe.src = url;"
+    },
+    {
+      "file": "classes2.dex",
+      "value": "    window.alipayjsbridgeSetTitle = function(title) {"
+    },
+    {
+      "file": "classes2.dex",
+      "value": "        alipayjsbridgeFunc(\"alipayjsbridge://setTitle?title=\" + encodeURIComponent(title))"
+    },
+    {
+      "file": "classes2.dex",
+      "value": "    window.alipayjsbridgeRefresh = function() {"
+    },
+    {
+      "file": "classes2.dex",
+      "value": "        alipayjsbridgeFunc(\"alipayjsbridge://onRefresh?\")"
+    },
+    {
+      "file": "classes2.dex",
+      "value": "    window.alipayjsbridgeBack = function() {"
+    },
+    {
+      "file": "classes2.dex",
+      "value": "        alipayjsbridgeFunc(\"alipayjsbridge://onBack?\")"
+    },
+    {
+      "file": "classes2.dex",
+      "value": "    window.alipayjsbridgeExit = function(bsucc) {"
+    },
+    {
+      "file": "classes2.dex",
+      "value": "        alipayjsbridgeFunc(\"alipayjsbridge://onExit?bsucc=\" + bsucc)"
+    },
+    {
+      "file": "classes2.dex",
+      "value": "    window.alipayjsbridgeShowBackButton = function(bshow) {"
+    },
+    {
+      "file": "classes2.dex",
+      "value": "        alipayjsbridgeFunc(\"alipayjsbridge://showBackButton?bshow=\" + bshow)"
+    },
+    {
+      "file": "classes2.dex",
+      "value": "    window.AlipayJSBridge = {"
+    },
+    {
+      "file": "classes2.dex",
+      "value": "iframe.src = \"alipayjsbridge://callNativeFunc?\" + paramStr;"
+    },
+    {
+      "file": "classes2.dex",
+      "value": "            if (!window.alipayjsbridgeH5BackAction || !alipayjsbridgeH5BackAction()) {"
+    },
+    {
+      "file": "classes2.dex",
+      "value": "            console.log(\"AlipayJSBridge: no h5JsFunc \" + h5JsFuncName + data)"
+    },
+    {
+      "file": "classes2.dex",
+      "value": "        event = new CustomEvent(\"alipayjsbridgeready\")"
+    },
+    {
+      "file": "classes2.dex",
+      "value": "        event.initEvent(\"alipayjsbridgeready\", true, true)"
+    },
+    {
+      "file": "classes2.dex",
+      "value": "        if (window.AlipayJSBridgeInitArray) {"
+    },
+    {
+      "file": "classes2.dex",
+      "value": "            var h5InitFuncs = window.AlipayJSBridgeInitArray;"
+    },
+    {
+      "file": "classes.dex",
+      "value": "<------ END HTTP"
+    },
+    {
+      "file": "classes.dex",
+      "value": "<------ END HTTP ("
+    },
+    {
+      "file": "classes.dex",
+      "value": "<------ END HTTP (binary "
+    },
+    {
+      "file": "classes.dex",
+      "value": "<------ END HTTP (encoded body omitted)"
+    },
+    {
+      "file": "classes.dex",
+      "value": "RSAKey="
+    },
+    {
+      "file": "classes.dex",
+      "value": "hostname : "
+    },
+    {
+      "file": "classes.dex",
+      "value": "signAppSecret="
+    },
+    {
+      "file": "classes.dex",
+      "value": "     android:name=\"com.tencent.tauth.AuthActivity\""
+    },
+    {
+      "file": "classes.dex",
+      "value": "     url:"
+    },
+    {
+      "file": "classes.dex",
+      "value": " -- url = "
+    },
+    {
+      "file": "classes.dex",
+      "value": " Payment:%s"
+    },
+    {
+      "file": "classes.dex",
+      "value": " pay with "
+    },
+    {
+      "file": "classes.dex",
+      "value": " paydata="
+    },
+    {
+      "file": "classes.dex",
+      "value": " | mRetryUrl: "
+    },
+    {
+      "file": "classes.dex",
+      "value": "A\"first_pay_flag\":\"%s\",\"card\":\"%s\",\"pay_type\":\"%s\",\"pay_mode\":\"%s\""
+    },
+    {
+      "file": "classes.dex",
+      "value": "8\"first_pay_flag\":\"%s\",%s,\"pay_type\":\"%s\",\"pay_mode\":\"%s\""
+    },
+    {
+      "file": "classes.dex",
+      "value": "\"\"pay_type\":\"%s\",\"pay_mode\":\"%s\",%s"
+    },
+    {
+      "file": "classes.dex",
+      "value": "%\"pay_type\":\"%s\",\"pay_mode\":\"%s\",%s,%s"
+    },
+    {
+      "file": "classes.dex",
+      "value": "&app_name_url_encode="
+    },
+    {
+      "file": "classes.dex",
+      "value": "&audioUrl="
+    },
+    {
+      "file": "classes.dex",
+      "value": "&auth_id="
+    },
+    {
+      "file": "classes.dex",
+      "value": "&image_url="
+    },
+    {
+      "file": "classes.dex",
+      "value": "&name=TapLoginAndroid"
+    },
+    {
+      "file": "classes.dex",
+      "value": "&notifyUrl="
+    },
+    {
+      "file": "classes.dex",
+      "value": "&organization_name_url_encode="
+    },
+    {
+      "file": "classes.dex",
+      "value": "&serverID="
+    },
+    {
+      "file": "classes.dex",
+      "value": "&serverName="
+    },
+    {
+      "file": "classes.dex",
+      "value": "&tapsdk_login_type="
+    },
+    {
+      "file": "classes.dex",
+      "value": "&token="
+    },
+    {
+      "file": "classes.dex",
+      "value": "&url="
+    },
+    {
+      "file": "classes.dex",
+      "value": "', access_token='"
+    },
+    {
+      "file": "classes.dex",
+      "value": "', authPageActOut='"
+    },
+    {
+      "file": "classes.dex",
+      "value": "', bannerUrl='"
+    },
+    {
+      "file": "classes.dex",
+      "value": "', buttonUrl='"
+    },
+    {
+      "file": "classes.dex",
+      "value": "', channelPaySign='"
+    },
+    {
+      "file": "classes.dex",
+      "value": "', effectSecret='"
+    },
+    {
+      "file": "classes.dex",
+      "value": "', is_login_demoted='"
+    },
+    {
+      "file": "classes.dex",
+      "value": "', is_reg_login="
+    },
+    {
+      "file": "classes.dex",
+      "value": "', leLanAuthName='"
+    },
+    {
+      "file": "classes.dex",
+      "value": "', leLanAuthPay='"
+    },
+    {
+      "file": "classes.dex",
+      "value": "', leLanPayWarning='"
+    },
+    {
+      "file": "res/anim/abc_fade_in.xml",
+      "value": "**http://schemas.android.com/apk/res/android"
+    },
+    {
+      "file": "res/animator/design_appbar_state_list_animator.xml",
+      "value": "''http://schemas.android.com/apk/res-auto"
+    },
+    {
+      "file": "res/drawable/$avd_hide_password__0.xml",
+      "value": "http://schemas.android.com/aapt"
+    },
+    {
+      "file": "res/layout/activity_main.xml",
+      "value": " Login"
+    }
+  ]
+}

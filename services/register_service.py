@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import random
 import threading
 import time
 import uuid
@@ -37,7 +38,7 @@ def _now() -> str:
 
 
 def _default_config() -> dict:
-    return {**openai_register.config, "mode": "total", "target_quota": 100, "target_available": 10, "check_interval": 5, "enabled": False, "stats": {"success": 0, "fail": 0, "done": 0, "running": 0, "threads": openai_register.config["threads"], "elapsed_seconds": 0, "avg_seconds": 0, "success_rate": 0, "current_quota": 0, "current_available": 0}}
+    return {**openai_register.config, "mode": "total", "target_quota": 100, "target_available": 10, "check_interval": 5, "register_interval_min": 2.0, "register_interval_max": 6.0, "enabled": False, "stats": {"success": 0, "fail": 0, "done": 0, "running": 0, "threads": openai_register.config["threads"], "elapsed_seconds": 0, "avg_seconds": 0, "success_rate": 0, "current_quota": 0, "current_available": 0}}
 
 
 def _normalize(raw: dict) -> dict:
@@ -49,6 +50,8 @@ def _normalize(raw: dict) -> dict:
     cfg["target_quota"] = max(1, int(cfg.get("target_quota") or 1))
     cfg["target_available"] = max(1, int(cfg.get("target_available") or 1))
     cfg["check_interval"] = max(1, int(cfg.get("check_interval") or 5))
+    cfg["register_interval_min"] = max(0.0, float(cfg.get("register_interval_min") or 2.0))
+    cfg["register_interval_max"] = max(cfg["register_interval_min"], float(cfg.get("register_interval_max") or 6.0))
     cfg["proxy"] = str(cfg.get("proxy") or "").strip()
     if isinstance(cfg.get("mail"), dict):
         cfg["mail"].pop("proxy", None)
@@ -278,9 +281,14 @@ class RegisterService:
             futures = set()
             while True:
                 cfg = self.get()
+                interval_min = float(cfg.get("register_interval_min") or 0.0)
+                interval_max = float(cfg.get("register_interval_max") or 0.0)
                 while self.get()["enabled"] and not self._target_reached(cfg, submitted) and len(futures) < threads:
                     submitted += 1
                     futures.add(executor.submit(openai_register.worker, submitted))
+                    # 注册间隔抖动，防同 IP 短时批量注册触发风控
+                    if interval_max > 0:
+                        time.sleep(random.uniform(interval_min, interval_max))
                 self._bump(running=len(futures), done=done, success=success, fail=fail)
                 if not futures and (not self.get()["enabled"] or str(cfg.get("mode") or "total") == "total"):
                     break
