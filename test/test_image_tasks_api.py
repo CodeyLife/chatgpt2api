@@ -82,6 +82,17 @@ class ImageTasksApiTests(unittest.TestCase):
         self.assertEqual(payload["status"], "success")
         self.assertEqual(len(self.fake_service.generation_calls), 1)
 
+    def test_v1_create_generation_task_alias(self):
+        response = self.client.post(
+            "/v1/image-tasks/generations",
+            headers=AUTH_HEADERS,
+            json={"client_task_id": "task-v1", "prompt": "cat", "model": "gpt-image-2"},
+        )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["id"], "task-v1")
+        self.assertEqual(len(self.fake_service.generation_calls), 1)
+
     def test_create_edit_task_accepts_multiple_images(self):
         """测试图片编辑任务接口支持多个上传图片。"""
         response = self.client.post(
@@ -120,6 +131,14 @@ class ImageTasksApiTests(unittest.TestCase):
 
     def test_list_tasks_reports_missing_ids(self):
         response = self.client.get("/api/image-tasks?ids=task-1,missing", headers=AUTH_HEADERS)
+
+        self.assertEqual(response.status_code, 200, response.text)
+        payload = response.json()
+        self.assertEqual([item["id"] for item in payload["items"]], ["task-1"])
+        self.assertEqual(payload["missing_ids"], ["missing"])
+
+    def test_v1_list_tasks_alias_reports_missing_ids(self):
+        response = self.client.get("/v1/image-tasks?ids=task-1,missing", headers=AUTH_HEADERS)
 
         self.assertEqual(response.status_code, 200, response.text)
         payload = response.json()

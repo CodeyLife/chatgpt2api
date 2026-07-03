@@ -368,15 +368,32 @@ class AccountService:
         # 从账号信息还原 profile，保证 token 刷新的指纹与注册时一致
         profile_name = str((account or {}).get("fingerprint_profile") or "").strip()
         profile = get_profile_by_name(profile_name)
+        device_id = str((account or {}).get("device_id") or "").strip()
         session = requests.Session(**proxy_settings.build_session_kwargs(account=account, impersonate=profile.impersonate, verify=True))
         try:
+            # 设备 cookie + 完整浏览器头，与注册/重登流程对齐，避免 refresh_token 接口设备指纹漂移
+            if device_id:
+                session.cookies.set("oai-did", device_id, domain=".auth.openai.com")
+                session.cookies.set("oai-did", device_id, domain="auth.openai.com")
+            headers = {
+                "Accept": "application/json",
+                "Content-Type": "application/x-www-form-urlencoded",
+                "User-Agent": profile.user_agent,
+                "accept-language": profile.accept_language,
+                "origin": "https://auth.openai.com",
+                "referer": "https://auth.openai.com/",
+                "sec-ch-ua": profile.sec_ch_ua,
+                "sec-ch-ua-mobile": "?0",
+                "sec-ch-ua-platform": profile.sec_ch_ua_platform,
+                "sec-fetch-dest": "empty",
+                "sec-fetch-mode": "cors",
+                "sec-fetch-site": "same-origin",
+            }
+            if device_id:
+                headers["oai-device-id"] = device_id
             response = session.post(
                 self._OAUTH_TOKEN_URL,
-                headers={
-                    "Accept": "application/json",
-                    "Content-Type": "application/x-www-form-urlencoded",
-                    "User-Agent": profile.user_agent,
-                },
+                headers=headers,
                 data={
                     "grant_type": "refresh_token",
                     "refresh_token": refresh_token,

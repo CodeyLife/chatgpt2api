@@ -180,6 +180,10 @@ class OpenAIBackendAPI:
         self.access_token = access_token
         self.account = account_service.get_account(self.access_token) if self.access_token else {}
         self.account = self.account if isinstance(self.account, dict) else {}
+        # 还原注册时持久化的浏览器 profile，保证 API 调用指纹与注册时一致
+        from utils.fingerprint import get_profile_by_name
+        profile_name = str(self.account.get("fingerprint_profile") or "").strip()
+        self._profile = get_profile_by_name(profile_name)
         self.fp = self._build_fp()
         self.user_agent = self.fp["user-agent"]
         self.device_id = self.fp["oai-device-id"]
@@ -192,29 +196,31 @@ class OpenAIBackendAPI:
             impersonate=self.fp["impersonate"],
             verify=True,
         ))
+        # 设备 cookie：与注册流程对齐，保证同账号设备指纹一致
+        self.session.cookies.set("oai-did", self.device_id, domain=".chatgpt.com")
+        # 高熵 Client Hints / 语言从 profile 取，避免与注册时的 Chrome 指纹矛盾
         self.session.headers.update({
             "User-Agent": self.user_agent,
             "Origin": self.base_url,
             "Referer": self.base_url + "/",
-            "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8,en-US;q=0.7",
+            "Accept-Language": self._profile.accept_language,
             "Cache-Control": "no-cache",
             "Pragma": "no-cache",
             "Priority": "u=1, i",
             "Sec-Ch-Ua": self.fp["sec-ch-ua"],
-            "Sec-Ch-Ua-Arch": '"x86"',
-            "Sec-Ch-Ua-Bitness": '"64"',
-            "Sec-Ch-Ua-Full-Version": '"143.0.3650.96"',
-            "Sec-Ch-Ua-Full-Version-List": '"Microsoft Edge";v="143.0.3650.96", "Chromium";v="143.0.7499.147", "Not A(Brand";v="24.0.0.0"',
+            "Sec-Ch-Ua-Arch": self._profile.sec_ch_ua_arch,
+            "Sec-Ch-Ua-Bitness": self._profile.sec_ch_ua_bitness,
+            "Sec-Ch-Ua-Full-Version-List": self._profile.sec_ch_ua_full_version_list,
             "Sec-Ch-Ua-Mobile": self.fp["sec-ch-ua-mobile"],
             "Sec-Ch-Ua-Model": '""',
             "Sec-Ch-Ua-Platform": self.fp["sec-ch-ua-platform"],
-            "Sec-Ch-Ua-Platform-Version": '"19.0.0"',
+            "Sec-Ch-Ua-Platform-Version": self._profile.sec_ch_ua_platform_version,
             "Sec-Fetch-Dest": "empty",
             "Sec-Fetch-Mode": "cors",
             "Sec-Fetch-Site": "same-origin",
             "OAI-Device-Id": self.device_id,
             "OAI-Session-Id": self.session_id,
-            "OAI-Language": "zh-CN",
+            "OAI-Language": "en-US",
             "OAI-Client-Version": self.client_version,
             "OAI-Client-Build-Number": self.client_build_number,
         })
@@ -245,6 +251,7 @@ class OpenAIBackendAPI:
 
     def _build_fp(self) -> Dict[str, str]:
         account = self.account
+        # 兼容老逻辑：若账号显式存了 fp dict 或逐字段，予以尊重（覆盖 profile 默认值）
         raw_fp = account.get("fp")
         fp = {str(k).lower(): str(v) for k, v in raw_fp.items()} if isinstance(raw_fp, dict) else {}
         for key in (
@@ -259,17 +266,17 @@ class OpenAIBackendAPI:
             value = str(account.get(key) or "").strip()
             if value:
                 fp[key] = value
-        fp.setdefault(
-            "user-agent",
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-            "(KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36 Edg/143.0.0.0",
-        )
-        fp.setdefault("impersonate", "chrome110")
-        fp.setdefault("oai-device-id", new_uuid())
+        # 以注册时持久化的 profile 为基底填充，保证 API 调用指纹与注册时一致
+        # 读 account["device_id"]（注册存的是 snake_case），而非 "oai-device-id"
+        profile = self._profile
+        device_id = str(account.get("device_id") or "").strip() or new_uuid()
+        fp.setdefault("user-agent", profile.user_agent)
+        fp.setdefault("impersonate", profile.impersonate)
+        fp.setdefault("oai-device-id", device_id)
         fp.setdefault("oai-session-id", new_uuid())
-        fp.setdefault("sec-ch-ua", '"Microsoft Edge";v="143", "Chromium";v="143", "Not A(Brand";v="24"')
+        fp.setdefault("sec-ch-ua", profile.sec_ch_ua)
         fp.setdefault("sec-ch-ua-mobile", "?0")
-        fp.setdefault("sec-ch-ua-platform", '"Windows"')
+        fp.setdefault("sec-ch-ua-platform", profile.sec_ch_ua_platform)
         return fp
 
     def _headers(self, path: str, extra: Optional[Dict[str, str]] = None) -> Dict[str, str]:

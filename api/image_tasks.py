@@ -38,6 +38,7 @@ async def filter_or_log(call: LoggedCall, text: str) -> None:
 def create_router() -> APIRouter:
     router = APIRouter()
 
+    @router.get("/v1/image-tasks")
     @router.get("/api/image-tasks")
     async def list_image_tasks(
         ids: str = Query(default=""),
@@ -46,6 +47,7 @@ def create_router() -> APIRouter:
         identity = require_identity(authorization)
         return await run_in_threadpool(image_task_service.list_tasks, identity, _parse_task_ids(ids))
 
+    @router.post("/v1/image-tasks/generations")
     @router.post("/api/image-tasks/generations")
     async def create_generation_task(
         body: ImageGenerationTaskRequest,
@@ -68,6 +70,7 @@ def create_router() -> APIRouter:
         except ValueError as exc:
             raise HTTPException(status_code=400, detail={"error": str(exc)}) from exc
 
+    @router.post("/v1/image-tasks/edits")
     @router.post("/api/image-tasks/edits")
     async def create_edit_task(
         request: Request,
@@ -99,6 +102,7 @@ def create_router() -> APIRouter:
         except ValueError as exc:
             raise HTTPException(status_code=400, detail={"error": str(exc)}) from exc
 
+    @router.post("/v1/image-tasks/{task_id}/resume-poll")
     @router.post("/api/image-tasks/{task_id}/resume-poll")
     async def resume_image_poll(
         task_id: str,
