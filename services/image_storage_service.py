@@ -19,6 +19,12 @@ from services.config import DATA_DIR, config
 IMAGE_INDEX_FILE = DATA_DIR / "image_index.json"
 IMAGE_INDEX_LOCK = Lock()
 IMAGE_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
+IMAGE_CONTENT_TYPES = {
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".png": "image/png",
+    ".webp": "image/webp",
+}
 
 
 class ImageStorageError(RuntimeError):
@@ -57,6 +63,25 @@ def _image_dimensions(payload: bytes) -> tuple[int, int] | None:
             return image.size
     except Exception:
         return None
+
+
+def image_content_type(relative_path: str) -> str:
+    return IMAGE_CONTENT_TYPES.get(Path(_safe_relative_path(relative_path)).suffix.lower(), "application/octet-stream")
+
+
+def _image_extension(payload: bytes) -> str:
+    try:
+        with Image.open(io.BytesIO(payload)) as image:
+            image_format = str(image.format or "").upper()
+    except Exception:
+        return ".png"
+    if image_format == "JPEG":
+        return ".jpg"
+    if image_format == "WEBP":
+        return ".webp"
+    if image_format == "PNG":
+        return ".png"
+    return ".png"
 
 
 def _image_dimensions_from_path(path) -> tuple[int, int] | None:
@@ -207,7 +232,7 @@ class ImageStorageService:
 
     def make_relative_path(self, image_data: bytes) -> str:
         file_hash = hashlib.md5(image_data).hexdigest()
-        filename = f"{int(time.time())}_{file_hash}.png"
+        filename = f"{int(time.time())}_{file_hash}{_image_extension(image_data)}"
         relative_dir = Path(time.strftime("%Y"), time.strftime("%m"), time.strftime("%d"))
         return f"{relative_dir.as_posix()}/{filename}"
 
@@ -228,7 +253,7 @@ class ImageStorageService:
             stored_local = True
 
         if mode in {"webdav", "both"}:
-            remote_url = WebDAVClient(self.settings()).put(rel, image_data)
+            remote_url = WebDAVClient(self.settings()).put(rel, image_data, content_type=image_content_type(rel))
             stored_webdav = True
 
         dimensions = _image_dimensions(image_data)
@@ -385,7 +410,7 @@ class ImageStorageService:
                     continue
                 try:
                     payload = path.read_bytes()
-                    remote_url = client.put(rel, payload)
+                    remote_url = client.put(rel, payload, content_type=image_content_type(rel))
                     dimensions = _image_dimensions(payload)
                     items[rel] = {
                         **item,

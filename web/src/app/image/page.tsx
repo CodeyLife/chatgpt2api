@@ -144,6 +144,22 @@ function dataUrlToFile(dataUrl: string, fileName: string, mimeType?: string) {
   return new File([bytes], fileName, { type: mimeType || matchedMimeType || "image/png" });
 }
 
+function imageMimeTypeFromBase64(value: string) {
+  const prefix = value.slice(0, 12);
+  if (prefix.startsWith("/9j/")) {
+    return "image/jpeg";
+  }
+  if (prefix.startsWith("UklGR")) {
+    return "image/webp";
+  }
+  return "image/png";
+}
+
+function imageFileNameForMimeType(fileName: string, mimeType: string) {
+  const extension = mimeType === "image/jpeg" ? "jpg" : mimeType === "image/webp" ? "webp" : "png";
+  return fileName.replace(/\.(png|jpe?g|webp)$/i, `.${extension}`);
+}
+
 function filterImageModels(items: Model[]): ImageModel[] {
   return items
     .map((item) => String(item.id || "").trim())
@@ -162,11 +178,12 @@ function buildReferenceImageFromResult(image: StoredImage, fileName: string): St
   if (!image.b64_json) {
     return null;
   }
+  const mimeType = imageMimeTypeFromBase64(image.b64_json);
 
   return {
-    name: fileName,
-    type: "image/png",
-    dataUrl: `data:image/png;base64,${image.b64_json}`,
+    name: imageFileNameForMimeType(fileName, mimeType),
+    type: mimeType,
+    dataUrl: `data:${mimeType};base64,${image.b64_json}`,
   };
 }
 
