@@ -34,7 +34,7 @@ config = {
     "proxy": "",
     "total": 10,
     "threads": 3,
-    "sentinel_browser_enabled": False,
+    "sentinel_browser_enabled": True,
     "sentinel_browser_headless": True,
     "sentinel_browser_timeout": 35.0,
     "sentinel_browser_chrome_path": "",
@@ -400,7 +400,7 @@ def _float_config(key: str, fallback: float) -> float:
 
 def _sentinel_browser_options() -> dict[str, Any]:
     return {
-        "sentinel_browser_enabled": _truthy(config.get("sentinel_browser_enabled"), False),
+        "sentinel_browser_enabled": _truthy(config.get("sentinel_browser_enabled"), True),
         "sentinel_browser_headless": _truthy(config.get("sentinel_browser_headless"), True),
         "sentinel_browser_timeout": max(5.0, _float_config("sentinel_browser_timeout", 35.0)),
         "sentinel_browser_chrome_path": str(config.get("sentinel_browser_chrome_path") or "").strip(),
