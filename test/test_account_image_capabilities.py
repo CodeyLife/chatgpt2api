@@ -138,6 +138,38 @@ class AccountCapabilityTests(unittest.TestCase):
             service.release_image_slot(warm_token)
             self.assertEqual(warm_token, "warm-token")
 
+    def test_new_account_warmup_blocks_text_scheduling_until_verified_and_elapsed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            service = AccountService(JSONStorageBackend(Path(tmp_dir) / "accounts.json"))
+            now = datetime.now(timezone.utc)
+            service.add_account_items(
+                [
+                    {
+                        "access_token": "warm-text-token",
+                        "status": "正常",
+                        "warmup_until": (now + timedelta(minutes=30)).isoformat(),
+                        "next_health_check_at": now.isoformat(),
+                        "health_score": 0,
+                        "last_health_event": "registered",
+                    },
+                    {"access_token": "ready-text-token", "status": "正常"},
+                ]
+            )
+
+            self.assertEqual(service.get_text_access_token(), "ready-text-token")
+
+            service.update_account(
+                "warm-text-token",
+                {
+                    "first_verified_at": now.isoformat(),
+                    "warmup_until": (now - timedelta(seconds=1)).isoformat(),
+                    "health_score": 2,
+                },
+            )
+            service.update_account("ready-text-token", {"status": "异常"})
+
+            self.assertEqual(service.get_text_access_token(), "warm-text-token")
+
     def test_new_account_invalid_token_is_not_removed_during_warmup(self) -> None:
         original_value = config.data.get("auto_remove_invalid_accounts")
         config.data["auto_remove_invalid_accounts"] = True
@@ -173,6 +205,49 @@ class AccountCapabilityTests(unittest.TestCase):
                 self.assertEqual(account["last_health_event"], "invalid_access_token")
                 self.assertLess(account["health_score"], 0)
                 self.assertTrue(account["next_health_check_at"])
+        finally:
+            if original_value is None:
+                config.data.pop("auto_remove_invalid_accounts", None)
+            else:
+                config.data["auto_remove_invalid_accounts"] = original_value
+
+    def test_unverified_new_account_can_be_marked_invalid_after_warmup_confirmation(self) -> None:
+        original_value = config.data.get("auto_remove_invalid_accounts")
+        config.data["auto_remove_invalid_accounts"] = False
+        try:
+            with tempfile.TemporaryDirectory() as tmp_dir:
+                service = AccountService(JSONStorageBackend(Path(tmp_dir) / "accounts.json"))
+                now = datetime.now(timezone.utc)
+                service.add_account_items(
+                    [
+                        {
+                            "access_token": "expired-warmup-invalid-token",
+                            "status": "正常",
+                            "created_at": (now - timedelta(hours=1)).isoformat(),
+                            "warmup_until": (now - timedelta(minutes=30)).isoformat(),
+                            "first_verified_at": None,
+                            "next_health_check_at": now.isoformat(),
+                            "invalid_count": 2,
+                            "last_invalid_at": (now - timedelta(minutes=1)).isoformat(),
+                            "health_score": -4,
+                            "last_health_event": "invalid_access_token",
+                        }
+                    ]
+                )
+
+                with patch(
+                    "services.openai_backend_api.OpenAIBackendAPI.get_user_info",
+                    side_effect=InvalidAccessTokenError("token invalidated (/backend-api/me)"),
+                ):
+                    result = service.refresh_accounts(["expired-warmup-invalid-token"])
+
+                account = service.get_account("expired-warmup-invalid-token")
+                self.assertEqual(result["refreshed"], 0)
+                self.assertEqual(len(result["errors"]), 1)
+                self.assertIsNotNone(account)
+                self.assertEqual(account["status"], "异常")
+                self.assertEqual(account["invalid_count"], 3)
+                self.assertEqual(account["last_health_event"], "invalid_access_token")
         finally:
             if original_value is None:
                 config.data.pop("auto_remove_invalid_accounts", None)

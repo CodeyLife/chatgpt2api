@@ -91,7 +91,8 @@ def start_limited_account_watcher(stop_event: Event) -> Thread:
                 expiring_tokens = account_service.list_expiring_access_tokens()
                 keepalive_tokens = account_service.list_refresh_token_keepalive_tokens()
                 tokens = list(dict.fromkeys([*limited_tokens, *normal_tokens, *expiring_tokens]))
-                tokens = [token for token in tokens if token not in set(new_account_tokens)]
+                new_account_token_set = set(new_account_tokens)
+                tokens = [token for token in tokens if token not in new_account_token_set]
                 expiring_token_set = set(expiring_tokens)
                 keepalive_tokens = [token for token in keepalive_tokens if token not in expiring_token_set]
                 if new_account_tokens:

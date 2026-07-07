@@ -142,6 +142,13 @@ class AccountService:
         now = datetime.now(timezone.utc)
         return warmup_until > now or first_verified_at is None
 
+    @classmethod
+    def _is_new_account_in_warmup_period(cls, account: dict) -> bool:
+        if not isinstance(account, dict):
+            return False
+        warmup_until = cls._parse_time(account.get("warmup_until"))
+        return warmup_until is not None and warmup_until > datetime.now(timezone.utc)
+
     @staticmethod
     def _timestamp_to_iso(value: object) -> str:
         try:
@@ -1118,8 +1125,9 @@ class AccountService:
                 token
                 for account in self._accounts.values()
                 if account.get("status") not in {"禁用", "异常"}
-                   and (token := account.get("access_token") or "")
-                   and token not in excluded
+                and not self._is_new_account_warmup_blocked(account)
+                and (token := account.get("access_token") or "")
+                and token not in excluded
             ]
             if not candidates:
                 return ""
@@ -1369,7 +1377,7 @@ class AccountService:
     def _should_defer_invalid_token(self, account: dict | None, now: datetime) -> bool:
         if not isinstance(account, dict):
             return False
-        if self._is_new_account_warmup_blocked(account):
+        if self._is_new_account_in_warmup_period(account):
             return True
         created_at = self._parse_time(account.get("created_at"))
         if created_at is not None and (now - created_at).total_seconds() < self._NEW_ACCOUNT_INVALID_GRACE_SECONDS:
@@ -1395,7 +1403,7 @@ class AccountService:
             current = self._accounts.get(access_token)
             if current is None:
                 return True
-            should_defer = self._is_new_account_warmup_blocked(current) or (
+            should_defer = self._is_new_account_in_warmup_period(current) or (
                 defer_invalid_removal and self._should_defer_invalid_token(current, now)
             )
             next_item = dict(current)
