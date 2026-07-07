@@ -22,6 +22,12 @@ class RegisterConfigRequest(BaseModel):
     check_interval: int | None = None
     register_interval_min: float | None = None
     register_interval_max: float | None = None
+    sentinel_browser_enabled: bool | None = None
+    sentinel_browser_headless: bool | None = None
+    sentinel_browser_timeout: float | None = None
+    sentinel_browser_chrome_path: str | None = None
+    sentinel_browser_sdk_url: str | None = None
+    sentinel_browser_fallback: bool | None = None
 
 
 class OutlookPoolResetRequest(BaseModel):

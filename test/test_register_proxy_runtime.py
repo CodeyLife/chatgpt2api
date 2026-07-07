@@ -247,6 +247,74 @@ class RegisterProxyRuntimeTests(unittest.TestCase):
         self.assertIn('"so":"so-token"', headers["openai-sentinel-so-token"])
         self.assertIn('"flow":"oauth_create_account"', headers["openai-sentinel-so-token"])
 
+    def test_sentinel_headers_can_use_chromium_sdk_provider(self):
+        class SentinelSession:
+            def post(self, *args, **kwargs):
+                raise AssertionError("browser provider should not call backend sentinel req")
+
+        class BrowserResult:
+            token = '{"p":"browser-p","t":"","c":"browser-c","id":"device-1","flow":"oauth_create_account"}'
+            so_token = '{"so":"browser-so","c":"browser-c","id":"device-1","flow":"oauth_create_account"}'
+
+        with patch.object(openai_register, "build_chromium_sentinel_token", return_value=BrowserResult()) as provider:
+            headers = openai_register.build_sentinel_headers(
+                SentinelSession(),
+                "device-1",
+                "oauth_create_account",
+                profile=fingerprint.DEFAULT_PROFILE,
+                sentinel_browser_enabled=True,
+                sentinel_browser_timeout=7.0,
+                sentinel_browser_chrome_path="C:/Chrome/chrome.exe",
+                sentinel_browser_sdk_url="https://sentinel.openai.com/sentinel/test/sdk.js",
+            )
+
+        self.assertEqual(headers["openai-sentinel-token"], BrowserResult.token)
+        self.assertEqual(headers["openai-sentinel-so-token"], BrowserResult.so_token)
+        provider.assert_called_once()
+        provider_kwargs = provider.call_args.kwargs
+        self.assertEqual(provider_kwargs["flow"], "oauth_create_account")
+        self.assertEqual(provider_kwargs["device_id"], "device-1")
+        self.assertEqual(provider_kwargs["user_agent"], fingerprint.DEFAULT_PROFILE.user_agent)
+        self.assertEqual(provider_kwargs["screen_resolution"], fingerprint.DEFAULT_PROFILE.screen_resolution)
+        self.assertEqual(provider_kwargs["timeout"], 7.0)
+        self.assertEqual(provider_kwargs["chrome_path"], "C:/Chrome/chrome.exe")
+        self.assertEqual(provider_kwargs["sdk_url"], "https://sentinel.openai.com/sentinel/test/sdk.js")
+
+    def test_sentinel_headers_fallback_to_backend_when_chromium_provider_fails(self):
+        with patch.object(openai_register, "build_chromium_sentinel_token", side_effect=RuntimeError("timeout")), patch.object(
+            openai_register,
+            "_build_sentinel_tokens_tuple",
+            return_value=(
+                '{"p":"backend-p","t":"","c":"backend-c","id":"device-1","flow":"oauth_create_account"}',
+                "0backend-c",
+                '{"so":"backend-so","c":"backend-c","id":"device-1","flow":"oauth_create_account"}',
+            ),
+        ) as backend:
+            headers = openai_register.build_sentinel_headers(
+                FakeSession(),
+                "device-1",
+                "oauth_create_account",
+                profile=fingerprint.DEFAULT_PROFILE,
+                sentinel_browser_enabled=True,
+                sentinel_browser_fallback=True,
+            )
+
+        self.assertIn('"c":"backend-c"', headers["openai-sentinel-token"])
+        self.assertIn('"so":"backend-so"', headers["openai-sentinel-so-token"])
+        backend.assert_called_once()
+
+    def test_sentinel_headers_can_disable_chromium_fallback(self):
+        with patch.object(openai_register, "build_chromium_sentinel_token", side_effect=RuntimeError("timeout")):
+            with self.assertRaisesRegex(RuntimeError, "chromium_sentinel_failed"):
+                openai_register.build_sentinel_headers(
+                    FakeSession(),
+                    "device-1",
+                    "oauth_create_account",
+                    profile=fingerprint.DEFAULT_PROFILE,
+                    sentinel_browser_enabled=True,
+                    sentinel_browser_fallback=False,
+                )
+
     def test_new_registration_profile_matches_successful_browser_sample(self):
         profile = fingerprint.random_profile()
 

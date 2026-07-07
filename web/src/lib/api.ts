@@ -346,6 +346,12 @@ export type RegisterConfig = {
   check_interval: number;
   register_interval_min: number;
   register_interval_max: number;
+  sentinel_browser_enabled: boolean;
+  sentinel_browser_headless: boolean;
+  sentinel_browser_timeout: number;
+  sentinel_browser_chrome_path: string;
+  sentinel_browser_sdk_url: string;
+  sentinel_browser_fallback: boolean;
   stats: {
     job_id?: string;
     success: number;

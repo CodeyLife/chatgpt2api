@@ -41,6 +41,10 @@ def _default_config() -> dict:
     return {**openai_register.config, "mode": "total", "target_quota": 100, "target_available": 10, "check_interval": 5, "register_interval_min": 2.0, "register_interval_max": 6.0, "enabled": False, "stats": {"success": 0, "fail": 0, "done": 0, "running": 0, "threads": openai_register.config["threads"], "elapsed_seconds": 0, "avg_seconds": 0, "success_rate": 0, "current_quota": 0, "current_available": 0}}
 
 
+def _runtime_config_payload(cfg: dict) -> dict:
+    return {k: cfg[k] for k in openai_register.REGISTER_RUNTIME_CONFIG_KEYS if k in cfg}
+
+
 def _safe_bool(value: object, fallback: bool) -> bool:
     if isinstance(value, bool):
         return value
@@ -65,6 +69,12 @@ def _normalize(raw: dict) -> dict:
     cfg["check_interval"] = max(1, int(cfg.get("check_interval") or 5))
     cfg["register_interval_min"] = max(0.0, float(cfg.get("register_interval_min") or 2.0))
     cfg["register_interval_max"] = max(cfg["register_interval_min"], float(cfg.get("register_interval_max") or 6.0))
+    cfg["sentinel_browser_enabled"] = _safe_bool(cfg.get("sentinel_browser_enabled"), True)
+    cfg["sentinel_browser_headless"] = _safe_bool(cfg.get("sentinel_browser_headless"), True)
+    cfg["sentinel_browser_timeout"] = max(5.0, float(cfg.get("sentinel_browser_timeout") or 35.0))
+    cfg["sentinel_browser_chrome_path"] = str(cfg.get("sentinel_browser_chrome_path") or "").strip()
+    cfg["sentinel_browser_sdk_url"] = str(cfg.get("sentinel_browser_sdk_url") or "").strip()
+    cfg["sentinel_browser_fallback"] = _safe_bool(cfg.get("sentinel_browser_fallback"), True)
     cfg["proxy"] = str(cfg.get("proxy") or "").strip()
     default_mail = _default_config()["mail"] if isinstance(_default_config().get("mail"), dict) else {}
     mail = cfg.get("mail") if isinstance(cfg.get("mail"), dict) else {}
@@ -185,7 +195,7 @@ class RegisterService:
             self._merge_outlook_pools(updates)
             self._config = _normalize({**self._config, **updates})
             self._drop_mail_proxy()
-            openai_register.config.update({k: self._config[k] for k in ("mail", "proxy", "total", "threads")})
+            openai_register.config.update(_runtime_config_payload(self._config))
             self._save()
             return self.get()
 
@@ -200,7 +210,7 @@ class RegisterService:
             self._logs = []
             metrics = self._pool_metrics()
             self._config["stats"] = {"job_id": uuid.uuid4().hex, "success": 0, "fail": 0, "done": 0, "running": 0, "threads": self._config["threads"], **metrics, "started_at": _now(), "updated_at": _now()}
-            openai_register.config.update({k: self._config[k] for k in ("mail", "proxy", "total", "threads")})
+            openai_register.config.update(_runtime_config_payload(self._config))
             with openai_register.stats_lock:
                 openai_register.stats.update({"done": 0, "success": 0, "fail": 0, "start_time": time.time()})
             self._save()
@@ -231,7 +241,7 @@ class RegisterService:
         if scope == "unused":
             with self._lock:
                 removed = self._prune_unused_outlook_pools()
-                openai_register.config.update({k: self._config[k] for k in ("mail", "proxy", "total", "threads")})
+                openai_register.config.update(_runtime_config_payload(self._config))
                 self._save()
                 self._append_log(f"已清空 Outlook 邮箱池未使用邮箱，移除 {removed} 个", "yellow")
             return self.get()

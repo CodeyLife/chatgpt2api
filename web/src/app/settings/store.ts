@@ -1027,6 +1027,12 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
           Math.max(0, Number(registerConfig.register_interval_min) || 0),
           Number(registerConfig.register_interval_max) || 0,
         ),
+        sentinel_browser_enabled: registerConfig.sentinel_browser_enabled !== false,
+        sentinel_browser_headless: registerConfig.sentinel_browser_headless !== false,
+        sentinel_browser_timeout: Math.max(5, Number(registerConfig.sentinel_browser_timeout) || 35),
+        sentinel_browser_chrome_path: registerConfig.sentinel_browser_chrome_path || "",
+        sentinel_browser_sdk_url: registerConfig.sentinel_browser_sdk_url || "",
+        sentinel_browser_fallback: registerConfig.sentinel_browser_fallback !== false,
       });
       set({ registerConfig: data.register });
       toast.success("注册配置已保存");
@@ -1057,6 +1063,12 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
             Math.max(0, Number(registerConfig.register_interval_min) || 0),
             Number(registerConfig.register_interval_max) || 0,
           ),
+          sentinel_browser_enabled: registerConfig.sentinel_browser_enabled !== false,
+          sentinel_browser_headless: registerConfig.sentinel_browser_headless !== false,
+          sentinel_browser_timeout: Math.max(5, Number(registerConfig.sentinel_browser_timeout) || 35),
+          sentinel_browser_chrome_path: registerConfig.sentinel_browser_chrome_path || "",
+          sentinel_browser_sdk_url: registerConfig.sentinel_browser_sdk_url || "",
+          sentinel_browser_fallback: registerConfig.sentinel_browser_fallback !== false,
         });
       }
       const data = registerConfig.enabled ? await stopRegister() : await startRegister();

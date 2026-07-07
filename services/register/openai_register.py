@@ -34,12 +34,30 @@ config = {
     "proxy": "",
     "total": 10,
     "threads": 3,
+    "sentinel_browser_enabled": True,
+    "sentinel_browser_headless": True,
+    "sentinel_browser_timeout": 35.0,
+    "sentinel_browser_chrome_path": "",
+    "sentinel_browser_sdk_url": "",
+    "sentinel_browser_fallback": True,
 }
+REGISTER_RUNTIME_CONFIG_KEYS = (
+    "mail",
+    "proxy",
+    "total",
+    "threads",
+    "sentinel_browser_enabled",
+    "sentinel_browser_headless",
+    "sentinel_browser_timeout",
+    "sentinel_browser_chrome_path",
+    "sentinel_browser_sdk_url",
+    "sentinel_browser_fallback",
+)
 register_config_file = base_dir.parents[1] / "data" / "register.json"
 register_failure_dir = register_config_file.parent / "register_failures"
 try:
     saved_config = json.loads(register_config_file.read_text(encoding="utf-8"))
-    config.update({key: saved_config[key] for key in ("mail", "proxy", "total", "threads") if key in saved_config})
+    config.update({key: saved_config[key] for key in REGISTER_RUNTIME_CONFIG_KEYS if key in saved_config})
 except Exception:
     pass
 
@@ -373,6 +391,24 @@ def _mail_config(register_proxy: str = "") -> dict:
     return {**mail, "api_use_register_proxy": use_register_proxy, "proxy": proxy}
 
 
+def _float_config(key: str, fallback: float) -> float:
+    try:
+        return float(config.get(key) or fallback)
+    except (TypeError, ValueError):
+        return fallback
+
+
+def _sentinel_browser_options() -> dict[str, Any]:
+    return {
+        "sentinel_browser_enabled": _truthy(config.get("sentinel_browser_enabled"), True),
+        "sentinel_browser_headless": _truthy(config.get("sentinel_browser_headless"), True),
+        "sentinel_browser_timeout": max(5.0, _float_config("sentinel_browser_timeout", 35.0)),
+        "sentinel_browser_chrome_path": str(config.get("sentinel_browser_chrome_path") or "").strip(),
+        "sentinel_browser_sdk_url": str(config.get("sentinel_browser_sdk_url") or "").strip(),
+        "sentinel_browser_fallback": _truthy(config.get("sentinel_browser_fallback"), True),
+    }
+
+
 def _authorize_landed_page(resp) -> str:
     """诊断用：粗判 authorize 之后落在哪个页面。返回 signup / login / "" 仅供日志。
 
@@ -407,6 +443,10 @@ from utils.sentinel import (  # noqa: F401
     build_sentinel_token as _build_sentinel_token_tuple,
     build_sentinel_tokens as _build_sentinel_tokens_tuple,
 )
+from utils.chromium_sentinel import (  # noqa: F401
+    DEFAULT_SENTINEL_SDK_URL as DEFAULT_CHROMIUM_SENTINEL_SDK_URL,
+    build_chromium_sentinel_token,
+)
 
 
 def build_sentinel_token(session: requests.Session, device_id: str, flow: str, profile: BrowserProfile) -> str:
@@ -427,13 +467,61 @@ def build_sentinel_token(session: requests.Session, device_id: str, flow: str, p
     return sentinel_val
 
 
-def build_sentinel_headers(session: requests.Session, device_id: str, flow: str, profile: BrowserProfile) -> dict[str, str]:
+def _challenge_cookie_from_sentinel_header(header_value: str) -> str:
+    try:
+        data = json.loads(header_value)
+    except Exception:
+        return ""
+    c_value = str(data.get("c") or "").strip() if isinstance(data, dict) else ""
+    return f"0{c_value}" if c_value else ""
+
+
+def build_sentinel_headers(
+    session: requests.Session,
+    device_id: str,
+    flow: str,
+    profile: BrowserProfile,
+    *,
+    sentinel_browser_enabled: bool = False,
+    sentinel_browser_headless: bool = True,
+    sentinel_browser_timeout: float = 35.0,
+    sentinel_browser_chrome_path: str = "",
+    sentinel_browser_sdk_url: str = "",
+    sentinel_browser_fallback: bool = True,
+) -> dict[str, str]:
     """构造注册接口需要的 Sentinel headers。
 
     2026-07 抓到的成功 create_account 请求同时携带 openai-sentinel-token 与
     openai-sentinel-so-token；后者与前者共享 c/id/flow，仅在 sentinel 后端返回 so 时发送。
     老 sentinel 响应没有 so 时保持兼容，只发送 openai-sentinel-token。
+
+    默认单元测试/兼容调用仍走后端 PoW；注册运行时由 PlatformRegistrar 传入配置，
+    优先用真实 Chromium 执行 Sentinel SDK，失败时按 sentinel_browser_fallback 决定
+    是否回退到后端 PoW。
     """
+    if sentinel_browser_enabled:
+        try:
+            browser_result = build_chromium_sentinel_token(
+                flow=flow,
+                device_id=device_id,
+                user_agent=profile.user_agent,
+                sdk_url=sentinel_browser_sdk_url or DEFAULT_CHROMIUM_SENTINEL_SDK_URL,
+                screen_resolution=profile.screen_resolution,
+                headless=sentinel_browser_headless,
+                chrome_path=sentinel_browser_chrome_path,
+                timeout=sentinel_browser_timeout,
+            )
+            headers = {"openai-sentinel-token": browser_result.token}
+            if browser_result.so_token:
+                headers["openai-sentinel-so-token"] = browser_result.so_token
+            # 浏览器 SDK 已产出完整 header；这里仅解析一次，确保格式异常能尽早暴露。
+            if not _challenge_cookie_from_sentinel_header(browser_result.token):
+                raise RuntimeError("Chromium Sentinel token 缺少 c 字段")
+            return headers
+        except Exception as error:
+            if not sentinel_browser_fallback:
+                raise RuntimeError(f"chromium_sentinel_failed: {error}") from error
+            log(f"Chromium Sentinel 获取失败，回退后端 PoW: {error}", "yellow")
     sentinel_val, _oai_sc_val, so_val = _build_sentinel_tokens_tuple(
         session,
         device_id,
@@ -511,7 +599,13 @@ def request_with_local_retry(session: requests.Session, method: str, url: str, r
     return None, last_error
 
 
-def validate_otp(session: requests.Session, device_id: str, code: str, profile: BrowserProfile):
+def validate_otp(
+    session: requests.Session,
+    device_id: str,
+    code: str,
+    profile: BrowserProfile,
+    sentinel_options: dict[str, Any] | None = None,
+):
     headers = build_common_headers(profile)
     headers["referer"] = f"{auth_base}/email-verification"
     headers["oai-device-id"] = device_id
@@ -519,7 +613,7 @@ def validate_otp(session: requests.Session, device_id: str, code: str, profile: 
     resp, error = request_with_local_retry(session, "post", f"{auth_base}/api/accounts/email-otp/validate", json={"code": code}, headers=headers, verify=False)
     if resp is not None and resp.status_code == 200:
         return resp, ""
-    headers.update(build_sentinel_headers(session, device_id, "authorize_continue", profile=profile))
+    headers.update(build_sentinel_headers(session, device_id, "authorize_continue", profile=profile, **(sentinel_options or {})))
     resp, error = request_with_local_retry(session, "post", f"{auth_base}/api/accounts/email-otp/validate", json={"code": code}, headers=headers, verify=False)
     return resp, error
 
@@ -578,6 +672,7 @@ class PlatformRegistrar:
         self.device_id = str(uuid.uuid4())
         self.code_verifier = ""
         self.platform_auth_code = ""
+        self.sentinel_options = _sentinel_browser_options()
 
     def close(self) -> None:
         self.session.close()
@@ -669,7 +764,7 @@ class PlatformRegistrar:
         step(index, "开始提交注册密码")
         url = f"{auth_base}/api/accounts/user/register"
         headers = self._json_headers(f"{auth_base}/create-account/password")
-        headers.update(build_sentinel_headers(self.session, self.device_id, "username_password_create", profile=self.profile))
+        headers.update(build_sentinel_headers(self.session, self.device_id, "username_password_create", profile=self.profile, **self.sentinel_options))
         headers = _headers_with_clearance(headers, url, self.proxy, self.clearance_user_agent)
         resp, error = request_with_local_retry(self.session, "post", url, json={"username": email, "password": password}, headers=headers, verify=False)
         if _is_cloudflare_challenge(resp):
@@ -677,7 +772,7 @@ class PlatformRegistrar:
             if bundle is None:
                 _raise_step_failure(index, "user_register_cloudflare", "POST", url, resp, error or self.clearance_failure_reason, headers, {"username": email, "password": password}, prefix="user_register")
             headers = self._json_headers(f"{auth_base}/create-account/password")
-            headers.update(build_sentinel_headers(self.session, self.device_id, "username_password_create", profile=self.profile))
+            headers.update(build_sentinel_headers(self.session, self.device_id, "username_password_create", profile=self.profile, **self.sentinel_options))
             headers = _headers_with_clearance(headers, url, self.proxy, self.clearance_user_agent)
             resp, error = request_with_local_retry(self.session, "post", url, json={"username": email, "password": password}, headers=headers, verify=False)
             if _is_cloudflare_challenge(resp):
@@ -708,7 +803,7 @@ class PlatformRegistrar:
 
     def _validate_otp(self, code: str, index: int) -> None:
         step(index, f"开始校验验证码 {code}")
-        resp, error = validate_otp(self.session, self.device_id, code, profile=self.profile)
+        resp, error = validate_otp(self.session, self.device_id, code, profile=self.profile, sentinel_options=self.sentinel_options)
         if resp is None or resp.status_code != 200:
             _raise_step_failure(index, "validate_otp", "POST", f"{auth_base}/api/accounts/email-otp/validate", resp, error, request_body={"code": code}, prefix="validate_otp")
         step(index, "验证码校验完成")
@@ -717,7 +812,7 @@ class PlatformRegistrar:
         step(index, "开始创建账号资料")
         url = f"{auth_base}/api/accounts/create_account"
         headers = self._json_headers(f"{auth_base}/about-you")
-        headers.update(build_sentinel_headers(self.session, self.device_id, "oauth_create_account", profile=self.profile))
+        headers.update(build_sentinel_headers(self.session, self.device_id, "oauth_create_account", profile=self.profile, **self.sentinel_options))
         headers = _headers_with_clearance(headers, url, self.proxy, self.clearance_user_agent)
         resp, error = request_with_local_retry(self.session, "post", url, json={"name": name, "birthdate": birthdate}, headers=headers, verify=False)
         if _is_cloudflare_challenge(resp):
@@ -725,7 +820,7 @@ class PlatformRegistrar:
             if bundle is None:
                 _raise_step_failure(index, "create_account_cloudflare", "POST", url, resp, error or self.clearance_failure_reason, headers, {"name": name, "birthdate": birthdate}, prefix="create_account")
             headers = self._json_headers(f"{auth_base}/about-you")
-            headers.update(build_sentinel_headers(self.session, self.device_id, "oauth_create_account", profile=self.profile))
+            headers.update(build_sentinel_headers(self.session, self.device_id, "oauth_create_account", profile=self.profile, **self.sentinel_options))
             headers = _headers_with_clearance(headers, url, self.proxy, self.clearance_user_agent)
             resp, error = request_with_local_retry(self.session, "post", url, json={"name": name, "birthdate": birthdate}, headers=headers, verify=False)
             if _is_cloudflare_challenge(resp):
