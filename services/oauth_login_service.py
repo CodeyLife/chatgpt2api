@@ -24,15 +24,13 @@ from curl_cffi import requests
 from services.proxy_service import proxy_settings
 from services.register.openai_register import (
     auth_base,
-    common_headers,
     platform_auth0_client,
     platform_base,
     platform_oauth_audience,
     platform_oauth_client_id,
     platform_oauth_redirect_uri,
-    sec_ch_ua,
-    user_agent,
 )
+from utils.fingerprint import DEFAULT_PROFILE, build_common_headers
 
 
 class OAuthLoginError(Exception):
@@ -199,12 +197,10 @@ class OAuthLoginService:
             response = session.post(
                 f"{auth_base}/api/accounts/oauth/token",
                 headers={
-                    **common_headers,
+                    **build_common_headers(DEFAULT_PROFILE),
                     "referer": f"{platform_base}/",
                     "origin": platform_base,
                     "auth0-client": platform_auth0_client,
-                    "sec-ch-ua": sec_ch_ua,
-                    "user-agent": user_agent,
                 },
                 json={
                     "client_id": platform_oauth_client_id,

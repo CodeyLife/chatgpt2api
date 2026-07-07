@@ -20,7 +20,7 @@ from curl_cffi import requests
 from services.account_service import account_service
 from services.proxy_service import ClearanceBundle, proxy_settings
 from services.register import mail_provider
-from utils.fingerprint import BrowserProfile, DEFAULT_PROFILE, build_common_headers, build_navigate_headers, random_profile
+from utils.fingerprint import BrowserProfile, build_common_headers, build_navigate_headers, random_profile
 
 base_dir = Path(__file__).resolve().parent
 config = {
@@ -49,13 +49,6 @@ platform_oauth_client_id = "app_2SKx67EdpoN0G6j64rFvigXD"
 platform_oauth_redirect_uri = f"{platform_base}/auth/callback"
 platform_oauth_audience = "https://api.openai.com/v1"
 platform_auth0_client = "eyJuYW1lIjoiYXV0aDAtc3BhLWpzIiwidmVyc2lvbiI6IjEuMjEuMCJ9"
-user_agent = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-    "AppleWebKit/537.36 (KHTML, like Gecko) "
-    "Chrome/145.0.0.0 Safari/537.36"
-)
-sec_ch_ua = '"Google Chrome";v="145", "Not?A_Brand";v="8", "Chromium";v="145"'
-sec_ch_ua_full_version_list = '"Chromium";v="145.0.0.0", "Not:A-Brand";v="99.0.0.0", "Google Chrome";v="145.0.0.0"'
 default_timeout = 30
 print_lock = threading.Lock()
 stats_lock = threading.Lock()
@@ -70,55 +63,6 @@ class RegistrationStepError(RuntimeError):
         super().__init__(message)
         self.artifact_path = artifact_path
         self.diagnosis = diagnosis
-
-common_headers = {
-    "accept": "application/json",
-    "accept-encoding": "gzip, deflate, br",
-    "accept-language": "en-US,en;q=0.9",
-    "cache-control": "no-cache",
-    "connection": "keep-alive",
-    "content-type": "application/json",
-    "dnt": "1",
-    "origin": auth_base,
-    "priority": "u=1, i",
-    "sec-gpc": "1",
-    "sec-ch-ua": sec_ch_ua,
-    "sec-ch-ua-arch": '"x86_64"',
-    "sec-ch-ua-bitness": '"64"',
-    "sec-ch-ua-full-version-list": sec_ch_ua_full_version_list,
-    "sec-ch-ua-mobile": "?0",
-    "sec-ch-ua-model": '""',
-    "sec-ch-ua-platform": '"Windows"',
-    "sec-ch-ua-platform-version": '"10.0.0"',
-    "sec-fetch-dest": "empty",
-    "sec-fetch-mode": "cors",
-    "sec-fetch-site": "same-origin",
-    "user-agent": user_agent,
-}
-
-navigate_headers = {
-    "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-    "accept-encoding": "gzip, deflate, br",
-    "accept-language": "en-US,en;q=0.9",
-    "cache-control": "max-age=0",
-    "connection": "keep-alive",
-    "dnt": "1",
-    "sec-gpc": "1",
-    "sec-ch-ua": sec_ch_ua,
-    "sec-ch-ua-arch": '"x86_64"',
-    "sec-ch-ua-bitness": '"64"',
-    "sec-ch-ua-full-version-list": sec_ch_ua_full_version_list,
-    "sec-ch-ua-mobile": "?0",
-    "sec-ch-ua-model": '""',
-    "sec-ch-ua-platform": '"Windows"',
-    "sec-ch-ua-platform-version": '"10.0.0"',
-    "sec-fetch-dest": "document",
-    "sec-fetch-mode": "navigate",
-    "sec-fetch-site": "same-origin",
-    "sec-fetch-user": "?1",
-    "upgrade-insecure-requests": "1",
-    "user-agent": user_agent,
-}
 
 
 def log(text: str, color: str = "") -> None:
@@ -185,7 +129,6 @@ def _random_name() -> tuple[str, str]:
         "Hill", "Flores", "Green", "Adams", "Nelson", "Baker", "Hall", "Rivera",
     ]
     return random.choice(first_names), random.choice(last_names)
-
 
 def _random_birthdate() -> str:
     return f"{random.randint(1996, 2006):04d}-{random.randint(1, 12):02d}-{random.randint(1, 28):02d}"
@@ -296,6 +239,8 @@ def _classify_failure(step_name: str, resp, error: str = "") -> str:
         return "注册步骤不匹配：authorize 可能落入登录分支、会话状态失效，或 screen_hint/login_hint 未被上游接受"
     if "failed to create account" in joined:
         return "上游拒绝创建账号：常见原因是邮箱域名信誉差、IP/代理风险高或该邮箱已被上游限制"
+    if "registration_disallowed" in joined or "cannot create your account with the given information" in joined:
+        return "注册被上游拒绝：优先检查浏览器 UA/语言指纹与成功样本是否一致，其次检查邮箱/IP 风险"
     if "sentinel" in joined or "proof" in joined or "arkose" in joined:
         return "风控校验失败：sentinel/proof 参数或浏览器指纹可能已过期，需要重新抓取网页参数"
     if "rate" in joined or status_code == 429:
@@ -464,54 +409,41 @@ from utils.sentinel import (  # noqa: F401
 )
 
 
-def build_sentinel_token(session: requests.Session, device_id: str, flow: str, profile: BrowserProfile | None = None) -> str:
-    """请求 sentinel token，返回 sentinel header 字符串（兼容旧接口）。
+def build_sentinel_token(session: requests.Session, device_id: str, flow: str, profile: BrowserProfile) -> str:
+    """请求 sentinel token，返回 sentinel header 字符串。
 
-    传入 profile 时使用 profile 的指纹特征（UA/分辨率/CPU 等），保证同账号全生命周期一致；
-    不传时回退到模块级默认值（Chrome 145 / Windows）。
+    使用 profile 的指纹特征（UA/分辨率/CPU 等），保证同账号全生命周期一致。
     """
-    if profile is not None:
-        sentinel_val, _oai_sc_val = _build_sentinel_token_tuple(
-            session,
-            device_id,
-            flow,
-            user_agent=profile.user_agent,
-            sec_ch_ua=profile.sec_ch_ua,
-            screen_resolution=profile.screen_resolution,
-            hardware_concurrency=profile.hardware_concurrency,
-            sec_ch_ua_platform=profile.sec_ch_ua_platform,
-        )
-    else:
-        sentinel_val, _oai_sc_val = _build_sentinel_token_tuple(session, device_id, flow, user_agent=user_agent, sec_ch_ua=sec_ch_ua)
+    sentinel_val, _oai_sc_val = _build_sentinel_token_tuple(
+        session,
+        device_id,
+        flow,
+        user_agent=profile.user_agent,
+        sec_ch_ua=profile.sec_ch_ua,
+        screen_resolution=profile.screen_resolution,
+        hardware_concurrency=profile.hardware_concurrency,
+        sec_ch_ua_platform=profile.sec_ch_ua_platform,
+    )
     return sentinel_val
 
 
-def build_sentinel_headers(session: requests.Session, device_id: str, flow: str, profile: BrowserProfile | None = None) -> dict[str, str]:
+def build_sentinel_headers(session: requests.Session, device_id: str, flow: str, profile: BrowserProfile) -> dict[str, str]:
     """构造注册接口需要的 Sentinel headers。
 
     2026-07 抓到的成功 create_account 请求同时携带 openai-sentinel-token 与
     openai-sentinel-so-token；后者与前者共享 c/id/flow，仅在 sentinel 后端返回 so 时发送。
     老 sentinel 响应没有 so 时保持兼容，只发送 openai-sentinel-token。
     """
-    if profile is not None:
-        sentinel_val, _oai_sc_val, so_val = _build_sentinel_tokens_tuple(
-            session,
-            device_id,
-            flow,
-            user_agent=profile.user_agent,
-            sec_ch_ua=profile.sec_ch_ua,
-            screen_resolution=profile.screen_resolution,
-            hardware_concurrency=profile.hardware_concurrency,
-            sec_ch_ua_platform=profile.sec_ch_ua_platform,
-        )
-    else:
-        sentinel_val, _oai_sc_val, so_val = _build_sentinel_tokens_tuple(
-            session,
-            device_id,
-            flow,
-            user_agent=user_agent,
-            sec_ch_ua=sec_ch_ua,
-        )
+    sentinel_val, _oai_sc_val, so_val = _build_sentinel_tokens_tuple(
+        session,
+        device_id,
+        flow,
+        user_agent=profile.user_agent,
+        sec_ch_ua=profile.sec_ch_ua,
+        screen_resolution=profile.screen_resolution,
+        hardware_concurrency=profile.hardware_concurrency,
+        sec_ch_ua_platform=profile.sec_ch_ua_platform,
+    )
     headers = {"openai-sentinel-token": sentinel_val}
     if so_val:
         headers["openai-sentinel-so-token"] = so_val
@@ -579,8 +511,8 @@ def request_with_local_retry(session: requests.Session, method: str, url: str, r
     return None, last_error
 
 
-def validate_otp(session: requests.Session, device_id: str, code: str, profile: BrowserProfile | None = None):
-    headers = build_common_headers(profile) if profile else dict(common_headers)
+def validate_otp(session: requests.Session, device_id: str, code: str, profile: BrowserProfile):
+    headers = build_common_headers(profile)
     headers["referer"] = f"{auth_base}/email-verification"
     headers["oai-device-id"] = device_id
     headers.update(_make_trace_headers())
@@ -605,12 +537,11 @@ def extract_oauth_callback_params_from_url(url: str) -> dict[str, str] | None:
     return {"code": code, "state": str((params.get("state") or [""])[0]).strip(), "scope": str((params.get("scope") or [""])[0]).strip()}
 
 
-def request_platform_oauth_token(session: requests.Session, code: str, code_verifier: str, profile: BrowserProfile | None = None) -> dict | None:
+def request_platform_oauth_token(session: requests.Session, code: str, code_verifier: str, profile: BrowserProfile) -> dict | None:
     # 用 build_common_headers 作为基底，保证 sec-ch-ua-full-version-list / sec-ch-ua-arch /
     # sec-ch-ua-bitness / sec-ch-ua-platform-version / sec-ch-ua-model / dnt / sec-gpc /
     # connection / accept-encoding 等指纹 header 与注册流程完全一致，避免被风控区分设备
-    p = profile or DEFAULT_PROFILE
-    headers = build_common_headers(p)
+    headers = build_common_headers(profile)
     # 覆盖 OAuth token 接口的差异字段
     headers["accept"] = "*/*"
     headers["auth0-client"] = platform_auth0_client

@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 from services.proxy_service import ClearanceBundle
 from services.register import openai_register
+from utils import fingerprint
 
 
 class FakeResponse:
@@ -238,7 +239,7 @@ class RegisterProxyRuntimeTests(unittest.TestCase):
                 )
 
         with patch.object(FakeResponse, "json", return_value={"token": "challenge-token", "so": "so-token", "proofofwork": {"required": False}}):
-            headers = openai_register.build_sentinel_headers(SentinelSession(), "device-1", "oauth_create_account")
+            headers = openai_register.build_sentinel_headers(SentinelSession(), "device-1", "oauth_create_account", profile=fingerprint.DEFAULT_PROFILE)
 
         self.assertIn("openai-sentinel-token", headers)
         self.assertIn("openai-sentinel-so-token", headers)
@@ -246,6 +247,16 @@ class RegisterProxyRuntimeTests(unittest.TestCase):
         self.assertIn('"so":"so-token"', headers["openai-sentinel-so-token"])
         self.assertIn('"flow":"oauth_create_account"', headers["openai-sentinel-so-token"])
 
+    def test_new_registration_profile_matches_successful_browser_sample(self):
+        profile = fingerprint.random_profile()
+
+        self.assertEqual(profile.name, "chrome150_win")
+        self.assertIn("Chrome/150.0.0.0", profile.user_agent)
+        self.assertEqual(profile.accept_language, "zh-CN,zh;q=0.9")
+        self.assertEqual(
+            profile.sec_ch_ua,
+            '"Not;A=Brand";v="8", "Chromium";v="150", "Google Chrome";v="150"',
+        )
 
 if __name__ == "__main__":
     unittest.main()

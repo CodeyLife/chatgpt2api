@@ -2,13 +2,13 @@
 
 统一管理注册/重登/刷新全流程的浏览器指纹特征，确保：
 1. 同一账号全生命周期指纹一致（注册、重登、token 刷新使用相同 profile）；
-2. 不同账号指纹差异化（分散指纹聚类，降低批量注册被识别风险）。
+2. 全量贴近当前成功浏览器样本，不再保留历史 profile。
 
 设计要点：
 - `impersonate` 必须与 `user_agent` 中声明的 Chrome 大版本匹配，否则 TLS 指纹与 UA 矛盾；
-- 所有 Profile 的 `accept_language` 统一为 `en-US,en;q=0.9`，避免重登暴露真实语言；
+- Profile 使用成功样本中的 `zh-CN,zh;q=0.9`；
 - `pick_profile(seed)` 基于种子（如 email）确定性选择，保证同一账号每次拿到相同 profile；
-- `random_profile()` 用于新账号注册时随机选择。
+- `random_profile()` 用于新账号注册时从当前可用 Profile 中选择。
 """
 from __future__ import annotations
 
@@ -30,7 +30,7 @@ class BrowserProfile:
     sec_ch_ua_platform_version: str  # 如 '"10.0.0"' / '"14.0.0"'
     sec_ch_ua_arch: str  # 如 '"x86_64"' / '""' (macOS 不发 arch)
     sec_ch_ua_bitness: str  # 如 '"64"'
-    accept_language: str  # 统一 "en-US,en;q=0.9"
+    accept_language: str
     screen_resolution: str  # sentinel/pow 用，如 "1920x1080"
     hardware_concurrency: int  # sentinel config 用
 
@@ -58,103 +58,42 @@ def _chrome_ua(major: int, platform: str) -> str:
 
 
 def _sec_ch_ua(major: int) -> str:
-    return f'"Google Chrome";v="{major}", "Not?A_Brand";v="8", "Chromium";v="{major}"'
+    return f'"Not;A=Brand";v="8", "Chromium";v="{major}", "Google Chrome";v="{major}"'
 
 
 def _sec_ch_ua_full_version_list(major: int) -> str:
-    return f'"Chromium";v="{major}.0.0.0", "Not:A-Brand";v="99.0.0.0", "Google Chrome";v="{major}.0.0.0"'
+    # 品牌串与 _sec_ch_ua 保持一致（成功样本使用 "Not;A=Brand"）
+    return f'"Chromium";v="{major}.0.0.0", "Not;A=Brand";v="99.0.0.0", "Google Chrome";v="{major}.0.0.0"'
 
 
 # ── 预置 Profile ──────────────────────────────────────────────
-# Chrome 145 / Windows（与历史默认一致，作为兜底，impersonate="chrome" 为 curl_cffi 最新版指纹）
-_PROFILE_CHROME145_WIN = BrowserProfile(
-    name="chrome145_win",
+# TODO P2: 以下 profile 字段（Chrome 大版本、平台版本、分辨率、CPU 数、语言）均来自
+# 2026-07 成功注册样本的抓包，属样本驱动决策。样本扩充或上游策略变化后需参数化为
+# 可配置项，避免单点漂移。
+_PROFILE_CHROME150_WIN = BrowserProfile(
+    name="chrome150_win",
     impersonate="chrome",
-    user_agent=_chrome_ua(145, "Windows"),
-    sec_ch_ua=_sec_ch_ua(145),
-    sec_ch_ua_full_version_list=_sec_ch_ua_full_version_list(145),
+    user_agent=_chrome_ua(150, "Windows"),
+    sec_ch_ua=_sec_ch_ua(150),
+    sec_ch_ua_full_version_list=_sec_ch_ua_full_version_list(150),
     sec_ch_ua_platform='"Windows"',
     sec_ch_ua_platform_version='"10.0.0"',
     sec_ch_ua_arch='"x86_64"',
     sec_ch_ua_bitness='"64"',
-    accept_language="en-US,en;q=0.9",
-    screen_resolution="1920x1080",
-    hardware_concurrency=8,
-)
-
-_PROFILE_CHROME131_WIN = BrowserProfile(
-    name="chrome131_win",
-    impersonate="chrome131",
-    user_agent=_chrome_ua(131, "Windows"),
-    sec_ch_ua=_sec_ch_ua(131),
-    sec_ch_ua_full_version_list=_sec_ch_ua_full_version_list(131),
-    sec_ch_ua_platform='"Windows"',
-    sec_ch_ua_platform_version='"10.0.0"',
-    sec_ch_ua_arch='"x86_64"',
-    sec_ch_ua_bitness='"64"',
-    accept_language="en-US,en;q=0.9",
-    screen_resolution="2560x1440",
-    hardware_concurrency=12,
-)
-
-_PROFILE_CHROME131_MAC = BrowserProfile(
-    name="chrome131_mac",
-    impersonate="chrome131",
-    user_agent=_chrome_ua(131, "macOS"),
-    sec_ch_ua=_sec_ch_ua(131),
-    sec_ch_ua_full_version_list=_sec_ch_ua_full_version_list(131),
-    sec_ch_ua_platform='"macOS"',
-    sec_ch_ua_platform_version='"14.0.0"',
-    sec_ch_ua_arch='""',
-    sec_ch_ua_bitness='"64"',
-    accept_language="en-US,en;q=0.9",
-    screen_resolution="2560x1600",
-    hardware_concurrency=10,
-)
-
-_PROFILE_CHROME124_WIN = BrowserProfile(
-    name="chrome124_win",
-    impersonate="chrome124",
-    user_agent=_chrome_ua(124, "Windows"),
-    sec_ch_ua=_sec_ch_ua(124),
-    sec_ch_ua_full_version_list=_sec_ch_ua_full_version_list(124),
-    sec_ch_ua_platform='"Windows"',
-    sec_ch_ua_platform_version='"10.0.0"',
-    sec_ch_ua_arch='"x86_64"',
-    sec_ch_ua_bitness='"64"',
-    accept_language="en-US,en;q=0.9",
+    accept_language="zh-CN,zh;q=0.9",
     screen_resolution="1920x1080",
     hardware_concurrency=16,
 )
 
-_PROFILE_CHROME120_WIN = BrowserProfile(
-    name="chrome120_win",
-    impersonate="chrome120",
-    user_agent=_chrome_ua(120, "Windows"),
-    sec_ch_ua=_sec_ch_ua(120),
-    sec_ch_ua_full_version_list=_sec_ch_ua_full_version_list(120),
-    sec_ch_ua_platform='"Windows"',
-    sec_ch_ua_platform_version='"10.0.0"',
-    sec_ch_ua_arch='"x86_64"',
-    sec_ch_ua_bitness='"64"',
-    accept_language="en-US,en;q=0.9",
-    screen_resolution="1366x768",
-    hardware_concurrency=4,
-)
-
 PROFILES: list[BrowserProfile] = [
-    _PROFILE_CHROME145_WIN,
-    _PROFILE_CHROME131_WIN,
-    _PROFILE_CHROME131_MAC,
-    _PROFILE_CHROME124_WIN,
-    _PROFILE_CHROME120_WIN,
+    _PROFILE_CHROME150_WIN,
 ]
 
 # name -> profile 索引表
 _PROFILE_MAP: dict[str, BrowserProfile] = {p.name: p for p in PROFILES}
 
-# 默认 Profile（与历史硬编码值完全一致，确保向后兼容）
-DEFAULT_PROFILE: BrowserProfile = _PROFILE_CHROME145_WIN
+# 默认 Profile（用于新流程兜底）
+DEFAULT_PROFILE: BrowserProfile = _PROFILE_CHROME150_WIN
 
 
 def pick_profile(seed: str = "") -> BrowserProfile:
@@ -169,14 +108,15 @@ def pick_profile(seed: str = "") -> BrowserProfile:
 
 
 def random_profile() -> BrowserProfile:
-    """随机选择 profile，用于新账号注册。"""
+    # TODO P3: 当前仅一个 profile，random.choice 无随机意义；后续扩充 REGISTRATION 池时恢复随机性。
+    """随机选择新注册 profile。"""
     return random.choice(PROFILES)
 
 
 def get_profile_by_name(name: str) -> BrowserProfile:
     """根据持久化的 profile name 还原 profile。
 
-    找不到时回退到 DEFAULT_PROFILE，保证老账号（无 profile 字段）也能工作。
+    找不到时回退到 DEFAULT_PROFILE，保证异常情况下也能工作。
     """
     if not name:
         return DEFAULT_PROFILE
@@ -184,7 +124,7 @@ def get_profile_by_name(name: str) -> BrowserProfile:
 
 
 def build_common_headers(profile: BrowserProfile) -> dict[str, str]:
-    """构建 JSON API 请求头（与 openai_register.py 原有 common_headers 对齐）。"""
+    """构建 JSON API 请求头。"""
     return {
         "accept": "application/json",
         "accept-encoding": "gzip, deflate, br",
@@ -212,7 +152,7 @@ def build_common_headers(profile: BrowserProfile) -> dict[str, str]:
 
 
 def build_navigate_headers(profile: BrowserProfile) -> dict[str, str]:
-    """构建页面导航请求头（与 openai_register.py 原有 navigate_headers 对齐）。"""
+    """构建页面导航请求头。"""
     return {
         "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
         "accept-encoding": "gzip, deflate, br",
