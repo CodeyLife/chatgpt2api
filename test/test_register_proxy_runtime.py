@@ -382,6 +382,23 @@ class RegisterProxyRuntimeTests(unittest.TestCase):
         self.assertIn("/usr/bin/google-chrome", message)
         self.assertIn("No usable sandbox", message)
 
+    def test_chromium_sentinel_devtools_port_retries_permission_race(self):
+        with patch.object(Path, "exists", return_value=True), patch.object(
+            Path,
+            "read_text",
+            side_effect=[PermissionError("locked"), "9222\n/devtools/browser"],
+        ):
+            port = chromium_sentinel._read_devtools_port(Path("ignored"), 1)
+
+        self.assertEqual(port, 9222)
+
+    def test_chromium_sentinel_user_data_parent_defaults_inside_repo_data(self):
+        parent = chromium_sentinel._chrome_user_data_parent()
+
+        self.assertEqual(parent.name, "chromium_tmp")
+        self.assertEqual(parent.parent.name, "data")
+        self.assertTrue(parent.exists())
+
     def test_new_registration_profile_matches_successful_browser_sample(self):
         profile = fingerprint.random_profile()
 

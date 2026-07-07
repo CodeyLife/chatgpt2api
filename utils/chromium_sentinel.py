@@ -191,13 +191,20 @@ def _load_sdk(sdk_url: str, user_agent: str, timeout: float) -> str:
 def _read_devtools_port(user_data_dir: Path, timeout: float) -> int:
     port_file = user_data_dir / "DevToolsActivePort"
     deadline = time.monotonic() + timeout
+    last_error = ""
     while time.monotonic() < deadline:
         if port_file.exists():
-            text = port_file.read_text(encoding="utf-8", errors="replace").splitlines()
-            if text:
-                return int(text[0])
+            try:
+                text = port_file.read_text(encoding="utf-8", errors="replace").splitlines()
+                if text:
+                    return int(text[0])
+            except (OSError, PermissionError) as error:
+                # Windows 服务环境中 DevToolsActivePort 可能刚创建就短暂锁定。
+                # 不要立刻 fallback，继续等到 Chrome 完成写入/释放句柄。
+                last_error = str(error)
         time.sleep(0.1)
-    raise TimeoutError("等待 Chrome DevToolsActivePort 超时")
+    suffix = f"; last_error={last_error}" if last_error else ""
+    raise TimeoutError(f"等待 Chrome DevToolsActivePort 超时{suffix}")
 
 
 def _json_get(url: str, timeout: float) -> Any:
@@ -271,6 +278,51 @@ def _chrome_startup_error(error: Exception, proc: subprocess.Popen, chrome: str,
     return RuntimeError(detail)
 
 
+def _cleanup_chrome_process_and_profile(proc: subprocess.Popen, user_data_dir: Path) -> None:
+    try:
+        proc.terminate()
+        proc.wait(timeout=5)
+    except Exception:
+        try:
+            proc.kill()
+            proc.wait(timeout=5)
+        except Exception:
+            pass
+    if os.name == "nt":
+        try:
+            subprocess.run(
+                ["taskkill", "/PID", str(proc.pid), "/T", "/F"],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=5,
+                check=False,
+            )
+        except Exception:
+            pass
+    for _ in range(10):
+        try:
+            shutil.rmtree(user_data_dir, ignore_errors=False)
+            return
+        except FileNotFoundError:
+            return
+        except Exception:
+            time.sleep(0.25)
+    shutil.rmtree(user_data_dir, ignore_errors=True)
+
+
+def _chrome_user_data_parent() -> Path:
+    """返回 Chrome profile 临时目录根路径。
+
+    Windows 服务运行时 `tempfile.gettempdir()` 常落到 C:\\Windows\\TEMP，
+    Chrome 写出的 DevToolsActivePort 可能被服务账号/ACL 短暂拒读。
+    默认改用项目 data/chromium_tmp；也可用 CHATGPT2API_CHROME_TMPDIR 覆盖。
+    """
+    configured = str(os.getenv("CHATGPT2API_CHROME_TMPDIR") or "").strip()
+    base = Path(configured) if configured else Path(__file__).resolve().parents[1] / "data" / "chromium_tmp"
+    base.mkdir(parents=True, exist_ok=True)
+    return base
+
+
 def build_chromium_sentinel_token(
     *,
     flow: str,
@@ -285,7 +337,7 @@ def build_chromium_sentinel_token(
     """用真实 Chromium 执行 Sentinel SDK，返回 header token。"""
     chrome = _find_chrome(chrome_path)
     sdk_source = _load_sdk(sdk_url, user_agent, min(20.0, timeout))
-    user_data_dir = Path(tempfile.mkdtemp(prefix="chatgpt2api-sentinel-chrome-"))
+    user_data_dir = Path(tempfile.mkdtemp(prefix="sentinel-chrome-", dir=str(_chrome_user_data_parent())))
     stderr_path = user_data_dir / "chrome-stderr.log"
     extra_args = [
         item.strip()
@@ -297,8 +349,12 @@ def build_chromium_sentinel_token(
         "--disable-gpu",
         "--disable-extensions",
         "--disable-component-extensions-with-background-pages",
+        "--disable-background-networking",
+        "--disable-default-apps",
         "--disable-dev-shm-usage",
         "--disable-setuid-sandbox",
+        "--disable-sync",
+        "--metrics-recording-only",
         "--no-sandbox",
         "--no-first-run",
         "--no-default-browser-check",
@@ -322,7 +378,7 @@ def build_chromium_sentinel_token(
         except Exception as error:
             raise _chrome_startup_error(error, proc, chrome, stderr_path) from error
         # 给 auth 页面和 Cloudflare/iframe 初始化一点时间；后续 SDK 调用还有独立超时。
-        time.sleep(2.0)
+        time.sleep(2.5)
         expression = f"""
 (async()=>{{
   const sdkSource = {json.dumps(sdk_source)};
@@ -351,13 +407,19 @@ def build_chromium_sentinel_token(
         # 首次打开 auth.openai.com 后上游可能立刻跳到 chatgpt.com/auth/login_with，
         # CDP 在 Runtime.evaluate 期间会偶发 target navigated/closed。这里重选
         # 当前 page target 再试，避免直接回退后端 PoW。
-        for attempt in range(3):
+        for attempt in range(6):
             if attempt:
-                time.sleep(0.75)
+                time.sleep(min(1.5, 0.5 + attempt * 0.25))
             page = _select_page(port, min(10.0, timeout))
             try:
                 with _CDPClient(str(page["webSocketDebuggerUrl"]), timeout=timeout) as client:
+                    try:
+                        client.call("Page.enable", timeout=5)
+                    except Exception:
+                        pass
                     client.call("Runtime.enable", timeout=10)
+                    # 等一小段时间让新导航后的默认 execution context 出现。
+                    time.sleep(0.25)
                     response = client.call(
                         "Runtime.evaluate",
                         {"expression": expression, "awaitPromise": True, "returnByValue": True},
@@ -366,7 +428,7 @@ def build_chromium_sentinel_token(
                 break
             except Exception as error:
                 last_error = error
-                if attempt < 2 and _is_target_navigation_error(error):
+                if attempt < 5 and _is_target_navigation_error(error):
                     continue
                 raise
         if response is None:
@@ -384,9 +446,4 @@ def build_chromium_sentinel_token(
             stderr_file.close()
         except Exception:
             pass
-        proc.terminate()
-        try:
-            proc.wait(timeout=5)
-        except Exception:
-            proc.kill()
-        shutil.rmtree(user_data_dir, ignore_errors=True)
+        _cleanup_chrome_process_and_profile(proc, user_data_dir)
