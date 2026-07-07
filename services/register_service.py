@@ -101,6 +101,9 @@ def _normalize(raw: dict) -> dict:
     cfg["sentinel_browser_chrome_path"] = str(cfg.get("sentinel_browser_chrome_path") or "").strip()
     cfg["sentinel_browser_sdk_url"] = str(cfg.get("sentinel_browser_sdk_url") or "").strip()
     cfg["sentinel_browser_fallback"] = _safe_bool(cfg.get("sentinel_browser_fallback"), True)
+    cfg["new_account_warmup_minutes"] = max(0, int(cfg.get("new_account_warmup_minutes") if cfg.get("new_account_warmup_minutes") is not None else 30))
+    cfg["new_account_verify_delay_seconds"] = max(0, int(cfg.get("new_account_verify_delay_seconds") if cfg.get("new_account_verify_delay_seconds") is not None else 120))
+    cfg["new_account_max_verify_workers"] = max(1, int(cfg.get("new_account_max_verify_workers") if cfg.get("new_account_max_verify_workers") is not None else 2))
     cfg["proxy"] = str(cfg.get("proxy") or "").strip()
     default_mail = _default_config()["mail"] if isinstance(_default_config().get("mail"), dict) else {}
     mail = cfg.get("mail") if isinstance(cfg.get("mail"), dict) else {}

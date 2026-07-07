@@ -86,12 +86,17 @@ def start_limited_account_watcher(stop_event: Event) -> Thread:
         while not stop_event.is_set():
             try:
                 limited_tokens = account_service.list_limited_tokens()
+                new_account_tokens = account_service.list_new_account_health_tokens()
                 normal_tokens = account_service.list_normal_tokens()
                 expiring_tokens = account_service.list_expiring_access_tokens()
                 keepalive_tokens = account_service.list_refresh_token_keepalive_tokens()
                 tokens = list(dict.fromkeys([*limited_tokens, *normal_tokens, *expiring_tokens]))
+                tokens = [token for token in tokens if token not in set(new_account_tokens)]
                 expiring_token_set = set(expiring_tokens)
                 keepalive_tokens = [token for token in keepalive_tokens if token not in expiring_token_set]
+                if new_account_tokens:
+                    print(f"[account-watcher] verifying {len(new_account_tokens)} protected new accounts")
+                    account_service.verify_new_accounts(new_account_tokens)
                 if tokens:
                     print(
                         "[account-watcher] checking "

@@ -98,6 +98,11 @@ class AccountService:
         if not raw:
             return None
         try:
+            if isinstance(value, (int, float)) or raw.replace(".", "", 1).isdigit():
+                return datetime.fromtimestamp(float(raw), tz=timezone.utc)
+        except Exception:
+            pass
+        try:
             parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
         except Exception:
             try:
@@ -107,6 +112,35 @@ class AccountService:
         if parsed.tzinfo is None:
             parsed = parsed.replace(tzinfo=timezone.utc)
         return parsed.astimezone(timezone.utc)
+
+    @staticmethod
+    def _register_int_config(key: str, fallback: int, minimum: int = 0) -> int:
+        try:
+            from services.register import openai_register
+
+            value = openai_register.config.get(key)
+            return max(minimum, int(value if value is not None else fallback))
+        except Exception:
+            return max(minimum, fallback)
+
+    @classmethod
+    def _new_account_verify_delay_seconds(cls) -> int:
+        return cls._register_int_config("new_account_verify_delay_seconds", 120, 0)
+
+    @classmethod
+    def _new_account_max_verify_workers(cls) -> int:
+        return cls._register_int_config("new_account_max_verify_workers", 2, 1)
+
+    @classmethod
+    def _is_new_account_warmup_blocked(cls, account: dict) -> bool:
+        if not isinstance(account, dict):
+            return False
+        warmup_until = cls._parse_time(account.get("warmup_until"))
+        first_verified_at = cls._parse_time(account.get("first_verified_at"))
+        if warmup_until is None:
+            return False
+        now = datetime.now(timezone.utc)
+        return warmup_until > now or first_verified_at is None
 
     @staticmethod
     def _timestamp_to_iso(value: object) -> str:
@@ -133,6 +167,8 @@ class AccountService:
         if not isinstance(account, dict):
             return False
         if account.get("status") in {"禁用", "限流", "异常"}:
+            return False
+        if AccountService._is_new_account_warmup_blocked(account):
             return False
         if bool(account.get("image_quota_unknown")):
             return True
@@ -242,6 +278,11 @@ class AccountService:
         normalized["last_token_refresh_at"] = normalized.get("last_token_refresh_at") or None
         normalized["last_token_refresh_error"] = normalized.get("last_token_refresh_error") or None
         normalized["last_token_refresh_error_at"] = normalized.get("last_token_refresh_error_at") or None
+        normalized["warmup_until"] = normalized.get("warmup_until") or None
+        normalized["first_verified_at"] = normalized.get("first_verified_at") or None
+        normalized["health_score"] = int(normalized.get("health_score") or 0)
+        normalized["last_health_event"] = normalized.get("last_health_event") or None
+        normalized["next_health_check_at"] = normalized.get("next_health_check_at") or None
         normalized["created_at"] = normalized.get("created_at") or AccountService._now()
         return normalized
 
@@ -313,6 +354,12 @@ class AccountService:
             next_item = dict(current)
             next_item["last_token_refresh_error"] = str(error or "refresh token failed")
             next_item["last_token_refresh_error_at"] = now
+            self._apply_health_event_locked(
+                next_item,
+                "token_refresh_failed",
+                delta=-1,
+                next_check_delay_seconds=self._new_account_verify_delay_seconds(),
+            )
             account = self._normalize_account(next_item)
             if account is not None:
                 self._accounts[resolved] = account
@@ -327,6 +374,50 @@ class AccountService:
         if not config.account_management_log_enabled:
             return
         log_service.add(LOG_TYPE_ACCOUNT, summary, detail, **data)
+
+    def _apply_health_event_locked(
+        self,
+        account: dict,
+        event: str,
+        *,
+        delta: int = 0,
+        verified: bool = False,
+        next_check_delay_seconds: int | None = None,
+    ) -> None:
+        now = datetime.now(timezone.utc)
+        account["health_score"] = max(-10, min(10, int(account.get("health_score") or 0) + int(delta or 0)))
+        account["last_health_event"] = str(event or "").strip() or None
+        if verified and not account.get("first_verified_at"):
+            account["first_verified_at"] = now.isoformat()
+        if next_check_delay_seconds is None:
+            account["next_health_check_at"] = None if verified else (
+                now + timedelta(seconds=self._new_account_verify_delay_seconds())
+            ).isoformat()
+        elif next_check_delay_seconds >= 0:
+            account["next_health_check_at"] = (now + timedelta(seconds=next_check_delay_seconds)).isoformat()
+
+    def record_health_check_failure(self, access_token: str, event: str, error: str = "") -> None:
+        with self._lock:
+            resolved = self._resolve_access_token_locked(access_token)
+            current = self._accounts.get(resolved)
+            if current is None:
+                return
+            if current.get("last_health_event") == "invalid_access_token" and "token invalid" in str(error or "").lower():
+                return
+            next_item = dict(current)
+            if error:
+                next_item["last_refresh_error"] = str(error)
+                next_item["last_refresh_error_at"] = datetime.now(timezone.utc).isoformat()
+            self._apply_health_event_locked(
+                next_item,
+                event,
+                delta=-1,
+                next_check_delay_seconds=self._new_account_verify_delay_seconds(),
+            )
+            account = self._normalize_account(next_item)
+            if account is not None:
+                self._accounts[resolved] = account
+                self._save_accounts()
 
     def _recent_token_refresh_error(self, account: dict) -> bool:
         last_error_at = self._parse_time(account.get("last_token_refresh_error_at"))
@@ -861,6 +952,7 @@ class AccountService:
                 token
                 for account in self._accounts.values()
                 if str(account.get("refresh_token") or "").strip()
+                and not self._is_new_account_warmup_blocked(account)
                 and (token := str(account.get("access_token") or "").strip())
                 and self._token_needs_refresh(token)
             ]
@@ -1092,6 +1184,7 @@ class AccountService:
                 token
                 for item in self._accounts.values()
                 if item.get("status") == "限流"
+                   and not self._is_new_account_warmup_blocked(item)
                    and (token := item.get("access_token") or "")
             ]
 
@@ -1101,8 +1194,26 @@ class AccountService:
                 token
                 for item in self._accounts.values()
                 if item.get("status") == "正常"
+                   and not self._is_new_account_warmup_blocked(item)
                    and (token := item.get("access_token") or "")
             ]
+
+    def list_new_account_health_tokens(self) -> list[str]:
+        now = datetime.now(timezone.utc)
+        due_tokens: list[str] = []
+        with self._lock:
+            for item in self._accounts.values():
+                if item.get("status") in {"禁用", "异常"}:
+                    continue
+                if not self._is_new_account_warmup_blocked(item):
+                    continue
+                next_check_at = self._parse_time(item.get("next_health_check_at"))
+                if next_check_at is not None and next_check_at > now:
+                    continue
+                token = str(item.get("access_token") or "").strip()
+                if token:
+                    due_tokens.append(token)
+        return due_tokens[: self._new_account_max_verify_workers()]
 
     @staticmethod
     def _account_payload_token(item: dict) -> str:
@@ -1250,6 +1361,7 @@ class AccountService:
             next_item["last_invalid_at"] = None
             next_item["last_refresh_error"] = None
             next_item["last_refresh_error_at"] = None
+            self._apply_health_event_locked(next_item, "health_check_success", delta=2, verified=True)
             account = self._normalize_account(next_item)
             if account is not None:
                 self._accounts[access_token] = account
@@ -1257,6 +1369,8 @@ class AccountService:
     def _should_defer_invalid_token(self, account: dict | None, now: datetime) -> bool:
         if not isinstance(account, dict):
             return False
+        if self._is_new_account_warmup_blocked(account):
+            return True
         created_at = self._parse_time(account.get("created_at"))
         if created_at is not None and (now - created_at).total_seconds() < self._NEW_ACCOUNT_INVALID_GRACE_SECONDS:
             return True
@@ -1281,12 +1395,20 @@ class AccountService:
             current = self._accounts.get(access_token)
             if current is None:
                 return True
-            should_defer = defer_invalid_removal and self._should_defer_invalid_token(current, now)
+            should_defer = self._is_new_account_warmup_blocked(current) or (
+                defer_invalid_removal and self._should_defer_invalid_token(current, now)
+            )
             next_item = dict(current)
             next_item["invalid_count"] = int(next_item.get("invalid_count") or 0) + 1
             next_item["last_invalid_at"] = now.isoformat()
             next_item["last_refresh_error"] = str(error or "invalid access token")
             next_item["last_refresh_error_at"] = now.isoformat()
+            self._apply_health_event_locked(
+                next_item,
+                "invalid_access_token",
+                delta=-2,
+                next_check_delay_seconds=self._new_account_verify_delay_seconds(),
+            )
             account = self._normalize_account(next_item)
             if account is not None:
                 self._accounts[access_token] = account
@@ -1530,6 +1652,7 @@ class AccountService:
                     raise
                 except Exception as exc:
                     error_str = str(exc)
+                    self.record_health_check_failure(token, "health_check_failed", error_str)
                     # TLS/代理连接错误是网络问题，不计入账号失败
                     from services.protocol.conversation import is_tls_connection_error
                     if not is_tls_connection_error(error_str):
@@ -1581,6 +1704,13 @@ class AccountService:
             self.finish_refresh_progress(progress_id, result)
 
         return result
+
+    def verify_new_accounts(self, access_tokens: list[str] | None = None) -> dict[str, Any]:
+        tokens = list(dict.fromkeys(token for token in (access_tokens or self.list_new_account_health_tokens()) if token))
+        if not tokens:
+            return {"refreshed": 0, "errors": [], "items": self.list_accounts(), "relogined": 0}
+        tokens = tokens[: self._new_account_max_verify_workers()]
+        return self.refresh_accounts(tokens, defer_invalid_removal=True)
 
     def re_login_accounts(self, access_tokens: list[str], progress_id: str | None = None) -> dict[str, Any]:
         """对选中账号执行密码重新登录流程。

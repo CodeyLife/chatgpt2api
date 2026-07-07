@@ -24,6 +24,9 @@ export function RegisterCard() {
   const setCheckInterval = useSettingsStore((state) => state.setRegisterCheckInterval);
   const setRegisterIntervalMin = useSettingsStore((state) => state.setRegisterIntervalMin);
   const setRegisterIntervalMax = useSettingsStore((state) => state.setRegisterIntervalMax);
+  const setNewAccountWarmupMinutes = useSettingsStore((state) => state.setRegisterNewAccountWarmupMinutes);
+  const setNewAccountVerifyDelaySeconds = useSettingsStore((state) => state.setRegisterNewAccountVerifyDelaySeconds);
+  const setNewAccountMaxVerifyWorkers = useSettingsStore((state) => state.setRegisterNewAccountMaxVerifyWorkers);
   const setMailField = useSettingsStore((state) => state.setRegisterMailField);
   const setMailApiUseRegisterProxy = useSettingsStore((state) => state.setRegisterMailApiUseRegisterProxy);
   const addProvider = useSettingsStore((state) => state.addRegisterProvider);
@@ -132,6 +135,18 @@ export function RegisterCard() {
             <div className="space-y-2">
               <label className="text-sm text-stone-700">注册间隔最大（秒）</label>
               <Input value={String(config.register_interval_max ?? 0)} onChange={(event) => setRegisterIntervalMax(event.target.value)} className="h-10 rounded-xl border-stone-200 bg-white" disabled={config.enabled} />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm text-stone-700">新号保护期（分钟）</label>
+              <Input value={String(config.new_account_warmup_minutes ?? 30)} onChange={(event) => setNewAccountWarmupMinutes(event.target.value)} className="h-10 rounded-xl border-stone-200 bg-white" disabled={config.enabled} />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm text-stone-700">新号复查延迟（秒）</label>
+              <Input value={String(config.new_account_verify_delay_seconds ?? 120)} onChange={(event) => setNewAccountVerifyDelaySeconds(event.target.value)} className="h-10 rounded-xl border-stone-200 bg-white" disabled={config.enabled} />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm text-stone-700">新号复查并发</label>
+              <Input value={String(config.new_account_max_verify_workers ?? 2)} onChange={(event) => setNewAccountMaxVerifyWorkers(event.target.value)} className="h-10 rounded-xl border-stone-200 bg-white" disabled={config.enabled} />
             </div>
           </div>
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import tempfile
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import patch
 
@@ -12,6 +13,7 @@ from services.account_service import AccountService
 from services.auth_service import AuthService
 from services.config import config
 from services.openai_backend_api import InvalidAccessTokenError
+from services.register import openai_register
 from services.storage.json_storage import JSONStorageBackend
 from utils.helper import anonymize_token, split_image_model
 
@@ -96,6 +98,137 @@ class AccountCapabilityTests(unittest.TestCase):
 
             self.assertEqual(plus_token, "token-plus")
             self.assertEqual(pro_token, "token-pro")
+
+    def test_new_account_warmup_blocks_image_scheduling_until_verified_and_elapsed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            service = AccountService(JSONStorageBackend(Path(tmp_dir) / "accounts.json"))
+            now = datetime.now(timezone.utc)
+            service.add_account_items(
+                [
+                    {
+                        "access_token": "warm-token",
+                        "status": "正常",
+                        "quota": 3,
+                        "warmup_until": (now + timedelta(minutes=30)).isoformat(),
+                        "next_health_check_at": now.isoformat(),
+                        "health_score": 0,
+                        "last_health_event": "registered",
+                    },
+                    {"access_token": "ready-token", "status": "正常", "quota": 3},
+                ]
+            )
+            service.fetch_remote_info = lambda access_token, event="fetch_remote_info": service.get_account(access_token)
+
+            token = service.get_available_access_token()
+            service.release_image_slot(token)
+
+            self.assertEqual(token, "ready-token")
+            self.assertEqual(service.list_new_account_health_tokens(), ["warm-token"])
+
+            service.update_account(
+                "warm-token",
+                {
+                    "first_verified_at": now.isoformat(),
+                    "warmup_until": (now - timedelta(seconds=1)).isoformat(),
+                    "health_score": 2,
+                },
+            )
+            service.update_account("ready-token", {"status": "限流", "quota": 0})
+            warm_token = service.get_available_access_token()
+            service.release_image_slot(warm_token)
+            self.assertEqual(warm_token, "warm-token")
+
+    def test_new_account_invalid_token_is_not_removed_during_warmup(self) -> None:
+        original_value = config.data.get("auto_remove_invalid_accounts")
+        config.data["auto_remove_invalid_accounts"] = True
+        try:
+            with tempfile.TemporaryDirectory() as tmp_dir:
+                service = AccountService(JSONStorageBackend(Path(tmp_dir) / "accounts.json"))
+                now = datetime.now(timezone.utc)
+                service.add_account_items(
+                    [
+                        {
+                            "access_token": "new-invalid-token",
+                            "status": "正常",
+                            "warmup_until": (now + timedelta(minutes=30)).isoformat(),
+                            "next_health_check_at": now.isoformat(),
+                            "health_score": 0,
+                            "last_health_event": "registered",
+                        }
+                    ]
+                )
+
+                with patch(
+                    "services.openai_backend_api.OpenAIBackendAPI.get_user_info",
+                    side_effect=InvalidAccessTokenError("token invalidated (/backend-api/me)"),
+                ):
+                    result = service.refresh_accounts(["new-invalid-token"], defer_invalid_removal=False)
+
+                account = service.get_account("new-invalid-token")
+                self.assertEqual(result["refreshed"], 0)
+                self.assertEqual(len(result["errors"]), 1)
+                self.assertIsNotNone(account)
+                self.assertEqual(account["status"], "正常")
+                self.assertEqual(account["invalid_count"], 1)
+                self.assertEqual(account["last_health_event"], "invalid_access_token")
+                self.assertLess(account["health_score"], 0)
+                self.assertTrue(account["next_health_check_at"])
+        finally:
+            if original_value is None:
+                config.data.pop("auto_remove_invalid_accounts", None)
+            else:
+                config.data["auto_remove_invalid_accounts"] = original_value
+
+    def test_new_account_successful_health_check_records_first_verified_at(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            service = AccountService(JSONStorageBackend(Path(tmp_dir) / "accounts.json"))
+            now = datetime.now(timezone.utc)
+            service.add_account_items(
+                [
+                    {
+                        "access_token": "new-good-token",
+                        "status": "正常",
+                        "quota": 0,
+                        "warmup_until": (now + timedelta(minutes=30)).isoformat(),
+                        "next_health_check_at": now.isoformat(),
+                        "health_score": 0,
+                        "last_health_event": "registered",
+                    }
+                ]
+            )
+
+            with patch(
+                "services.openai_backend_api.OpenAIBackendAPI.get_user_info",
+                return_value={"status": "正常", "quota": 5, "type": "free"},
+            ):
+                result = service.verify_new_accounts(["new-good-token"])
+
+            account = service.get_account("new-good-token")
+            self.assertEqual(result["refreshed"], 1)
+            self.assertIsNotNone(account)
+            self.assertTrue(account["first_verified_at"])
+            self.assertEqual(account["last_health_event"], "health_check_success")
+            self.assertGreaterEqual(account["health_score"], 2)
+            self.assertIsNone(account["next_health_check_at"])
+
+    def test_new_account_health_queue_respects_worker_limit(self) -> None:
+        with patch.object(openai_register, "config", {**openai_register.config, "new_account_max_verify_workers": 2}):
+            with tempfile.TemporaryDirectory() as tmp_dir:
+                service = AccountService(JSONStorageBackend(Path(tmp_dir) / "accounts.json"))
+                now = datetime.now(timezone.utc)
+                service.add_account_items(
+                    [
+                        {
+                            "access_token": f"new-token-{index}",
+                            "status": "正常",
+                            "warmup_until": (now + timedelta(minutes=30)).isoformat(),
+                            "next_health_check_at": now.isoformat(),
+                        }
+                        for index in range(4)
+                    ]
+                )
+
+                self.assertEqual(len(service.list_new_account_health_tokens()), 2)
 
     def test_refresh_accounts_can_remove_invalid_token_without_confirmation_delay(self) -> None:
         original_value = config.data.get("auto_remove_invalid_accounts")

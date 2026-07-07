@@ -40,6 +40,9 @@ config = {
     "sentinel_browser_chrome_path": "",
     "sentinel_browser_sdk_url": "",
     "sentinel_browser_fallback": True,
+    "new_account_warmup_minutes": 30,
+    "new_account_verify_delay_seconds": 120,
+    "new_account_max_verify_workers": 2,
 }
 REGISTER_RUNTIME_CONFIG_KEYS = (
     "mail",
@@ -52,6 +55,9 @@ REGISTER_RUNTIME_CONFIG_KEYS = (
     "sentinel_browser_chrome_path",
     "sentinel_browser_sdk_url",
     "sentinel_browser_fallback",
+    "new_account_warmup_minutes",
+    "new_account_verify_delay_seconds",
+    "new_account_max_verify_workers",
 )
 register_config_file = base_dir.parents[1] / "data" / "register.json"
 register_failure_dir = register_config_file.parent / "register_failures"
@@ -398,6 +404,14 @@ def _float_config(key: str, fallback: float) -> float:
         return fallback
 
 
+def _int_config(key: str, fallback: int, minimum: int = 0) -> int:
+    try:
+        value = config.get(key)
+        return max(minimum, int(value if value is not None else fallback))
+    except (TypeError, ValueError):
+        return max(minimum, fallback)
+
+
 def _sentinel_browser_options() -> dict[str, Any]:
     return {
         "sentinel_browser_enabled": _truthy(config.get("sentinel_browser_enabled"), True),
@@ -406,6 +420,19 @@ def _sentinel_browser_options() -> dict[str, Any]:
         "sentinel_browser_chrome_path": str(config.get("sentinel_browser_chrome_path") or "").strip(),
         "sentinel_browser_sdk_url": str(config.get("sentinel_browser_sdk_url") or "").strip(),
         "sentinel_browser_fallback": _truthy(config.get("sentinel_browser_fallback"), True),
+    }
+
+
+def _new_account_health_metadata() -> dict[str, Any]:
+    warmup_minutes = _int_config("new_account_warmup_minutes", 30, 0)
+    verify_delay_seconds = _int_config("new_account_verify_delay_seconds", 120, 0)
+    now = datetime.now(timezone.utc)
+    return {
+        "warmup_until": datetime.fromtimestamp(now.timestamp() + warmup_minutes * 60, tz=timezone.utc).isoformat() if warmup_minutes else None,
+        "first_verified_at": None,
+        "health_score": 0,
+        "last_health_event": "registered",
+        "next_health_check_at": datetime.fromtimestamp(now.timestamp() + verify_delay_seconds, tz=timezone.utc).isoformat(),
     }
 
 
@@ -880,6 +907,7 @@ class PlatformRegistrar:
             "created_at": datetime.now(timezone.utc).isoformat(),
             "device_id": self.device_id,
             "fingerprint_profile": self.profile.name,
+            **_new_account_health_metadata(),
         }
 
 
@@ -892,9 +920,9 @@ def worker(index: int) -> dict:
         cost = time.time() - start
         access_token = str(result["access_token"])
         account_service.add_account_items([result])
-        refresh_result = account_service.refresh_accounts([access_token])
+        refresh_result = account_service.verify_new_accounts([access_token])
         if refresh_result.get("errors"):
-            step(index, f"账号已保存，刷新状态暂未成功，稍后可重试: {refresh_result['errors']}", "yellow")
+            step(index, f"账号已保存，首次健康验证暂未成功，稍后自动复查: {refresh_result['errors']}", "yellow")
         with stats_lock:
             stats["done"] += 1
             stats["success"] += 1

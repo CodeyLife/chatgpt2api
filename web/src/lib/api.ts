@@ -37,6 +37,11 @@ export type Account = {
   /** 当前图片在途数(正在生成、尚未结束的图片数)。号池空闲时持续 > 0 表示并发槽位泄漏。 */
   image_inflight?: number;
   last_used_at?: string | null;
+  warmup_until?: string | null;
+  first_verified_at?: string | null;
+  health_score?: number;
+  last_health_event?: string | null;
+  next_health_check_at?: string | null;
   proxy?: string | null;
 };
 
@@ -352,6 +357,9 @@ export type RegisterConfig = {
   sentinel_browser_chrome_path: string;
   sentinel_browser_sdk_url: string;
   sentinel_browser_fallback: boolean;
+  new_account_warmup_minutes: number;
+  new_account_verify_delay_seconds: number;
+  new_account_max_verify_workers: number;
   stats: {
     job_id?: string;
     success: number;

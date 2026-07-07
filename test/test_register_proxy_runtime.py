@@ -284,6 +284,21 @@ class RegisterProxyRuntimeTests(unittest.TestCase):
 
         self.assertTrue(options["sentinel_browser_enabled"])
 
+    def test_register_service_normalizes_new_account_health_settings(self):
+        with TemporaryDirectory() as tmp:
+            service = RegisterService(Path(tmp) / "register.json")
+            snapshot = service.update(
+                {
+                    "new_account_warmup_minutes": 15,
+                    "new_account_verify_delay_seconds": 45,
+                    "new_account_max_verify_workers": 3,
+                }
+            )
+
+        self.assertEqual(snapshot["new_account_warmup_minutes"], 15)
+        self.assertEqual(snapshot["new_account_verify_delay_seconds"], 45)
+        self.assertEqual(snapshot["new_account_max_verify_workers"], 3)
+
     def test_sentinel_headers_can_use_chromium_sdk_provider(self):
         class SentinelSession:
             def post(self, *args, **kwargs):

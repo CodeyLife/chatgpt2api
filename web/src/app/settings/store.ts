@@ -341,6 +341,9 @@ type SettingsStore = {
   setRegisterCheckInterval: (value: string) => void;
   setRegisterIntervalMin: (value: string) => void;
   setRegisterIntervalMax: (value: string) => void;
+  setRegisterNewAccountWarmupMinutes: (value: string) => void;
+  setRegisterNewAccountVerifyDelaySeconds: (value: string) => void;
+  setRegisterNewAccountMaxVerifyWorkers: (value: string) => void;
   setRegisterMailField: (key: "request_timeout" | "wait_timeout" | "wait_interval", value: string) => void;
   setRegisterMailApiUseRegisterProxy: (value: boolean) => void;
   addRegisterProvider: () => void;
@@ -954,6 +957,18 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     set((state) => state.registerConfig ? { registerConfig: { ...state.registerConfig, register_interval_max: Number(value) || 0 } } : {});
   },
 
+  setRegisterNewAccountWarmupMinutes: (value) => {
+    set((state) => state.registerConfig ? { registerConfig: { ...state.registerConfig, new_account_warmup_minutes: Number(value) || 0 } } : {});
+  },
+
+  setRegisterNewAccountVerifyDelaySeconds: (value) => {
+    set((state) => state.registerConfig ? { registerConfig: { ...state.registerConfig, new_account_verify_delay_seconds: Number(value) || 0 } } : {});
+  },
+
+  setRegisterNewAccountMaxVerifyWorkers: (value) => {
+    set((state) => state.registerConfig ? { registerConfig: { ...state.registerConfig, new_account_max_verify_workers: Number(value) || 0 } } : {});
+  },
+
   setRegisterMailField: (key, value) => {
     set((state) => state.registerConfig ? {
       registerConfig: {
@@ -1033,6 +1048,9 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
         sentinel_browser_chrome_path: registerConfig.sentinel_browser_chrome_path || "",
         sentinel_browser_sdk_url: registerConfig.sentinel_browser_sdk_url || "",
         sentinel_browser_fallback: registerConfig.sentinel_browser_fallback !== false,
+        new_account_warmup_minutes: Math.max(0, Number(registerConfig.new_account_warmup_minutes) || 0),
+        new_account_verify_delay_seconds: Math.max(0, Number(registerConfig.new_account_verify_delay_seconds) || 0),
+        new_account_max_verify_workers: Math.max(1, Number(registerConfig.new_account_max_verify_workers) || 2),
       });
       set({ registerConfig: data.register });
       toast.success("注册配置已保存");
@@ -1069,6 +1087,9 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
           sentinel_browser_chrome_path: registerConfig.sentinel_browser_chrome_path || "",
           sentinel_browser_sdk_url: registerConfig.sentinel_browser_sdk_url || "",
           sentinel_browser_fallback: registerConfig.sentinel_browser_fallback !== false,
+          new_account_warmup_minutes: Math.max(0, Number(registerConfig.new_account_warmup_minutes) || 0),
+          new_account_verify_delay_seconds: Math.max(0, Number(registerConfig.new_account_verify_delay_seconds) || 0),
+          new_account_max_verify_workers: Math.max(1, Number(registerConfig.new_account_max_verify_workers) || 2),
         });
       }
       const data = registerConfig.enabled ? await stopRegister() : await startRegister();
