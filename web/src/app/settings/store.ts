@@ -339,6 +339,8 @@ type SettingsStore = {
   setRegisterTargetQuota: (value: string) => void;
   setRegisterTargetAvailable: (value: string) => void;
   setRegisterCheckInterval: (value: string) => void;
+  setRegisterIntervalMin: (value: string) => void;
+  setRegisterIntervalMax: (value: string) => void;
   setRegisterMailField: (key: "request_timeout" | "wait_timeout" | "wait_interval", value: string) => void;
   setRegisterMailApiUseRegisterProxy: (value: boolean) => void;
   addRegisterProvider: () => void;
@@ -944,6 +946,14 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     set((state) => state.registerConfig ? { registerConfig: { ...state.registerConfig, check_interval: Number(value) || 0 } } : {});
   },
 
+  setRegisterIntervalMin: (value) => {
+    set((state) => state.registerConfig ? { registerConfig: { ...state.registerConfig, register_interval_min: Number(value) || 0 } } : {});
+  },
+
+  setRegisterIntervalMax: (value) => {
+    set((state) => state.registerConfig ? { registerConfig: { ...state.registerConfig, register_interval_max: Number(value) || 0 } } : {});
+  },
+
   setRegisterMailField: (key, value) => {
     set((state) => state.registerConfig ? {
       registerConfig: {
@@ -1012,6 +1022,11 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
         target_quota: Math.max(1, Number(registerConfig.target_quota) || 1),
         target_available: Math.max(1, Number(registerConfig.target_available) || 1),
         check_interval: Math.max(1, Number(registerConfig.check_interval) || 5),
+        register_interval_min: Math.max(0, Number(registerConfig.register_interval_min) || 0),
+        register_interval_max: Math.max(
+          Math.max(0, Number(registerConfig.register_interval_min) || 0),
+          Number(registerConfig.register_interval_max) || 0,
+        ),
       });
       set({ registerConfig: data.register });
       toast.success("注册配置已保存");
@@ -1037,6 +1052,11 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
           target_quota: Math.max(1, Number(registerConfig.target_quota) || 1),
           target_available: Math.max(1, Number(registerConfig.target_available) || 1),
           check_interval: Math.max(1, Number(registerConfig.check_interval) || 5),
+          register_interval_min: Math.max(0, Number(registerConfig.register_interval_min) || 0),
+          register_interval_max: Math.max(
+            Math.max(0, Number(registerConfig.register_interval_min) || 0),
+            Number(registerConfig.register_interval_max) || 0,
+          ),
         });
       }
       const data = registerConfig.enabled ? await stopRegister() : await startRegister();

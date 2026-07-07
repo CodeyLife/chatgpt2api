@@ -344,6 +344,8 @@ export type RegisterConfig = {
   target_quota: number;
   target_available: number;
   check_interval: number;
+  register_interval_min: number;
+  register_interval_max: number;
   stats: {
     job_id?: string;
     success: number;

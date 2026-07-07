@@ -1,4 +1,6 @@
 import unittest
+from tempfile import TemporaryDirectory
+from pathlib import Path
 from unittest.mock import patch
 
 from services.proxy_service import ClearanceBundle
@@ -53,6 +55,12 @@ class FakeProxySettings:
         if self.refreshed and self.bundle and self.bundle.cookies:
             merged["Cookie"] = "; ".join(f"{key}={value}" for key, value in self.bundle.cookies.items())
         return merged
+
+    def get_profile(self, **kwargs):
+        class Profile:
+            clearance_enabled = True
+
+        return Profile()
 
     def refresh_clearance(self, target_url="", proxy="", force=False, upstream=True, **kwargs):
         self.refresh_calls.append({"target_url": target_url, "proxy": proxy, "force": force, "upstream": upstream})
@@ -188,6 +196,55 @@ class RegisterProxyRuntimeTests(unittest.TestCase):
         message = str(ctx.exception)
         self.assertIn("status=403", message)
         self.assertIn("challenge body", message)
+
+    def test_step_failure_dumps_redacted_artifact_with_diagnosis(self):
+        response = FakeResponse(
+            status_code=400,
+            text='{"message":"Failed to create account. Please try again.","access_token":"secret-token-value"}',
+            headers={"content-type": "application/json", "set-cookie": "cf_clearance=secret-cookie"},
+            url="https://auth.openai.com/api/accounts/user/register",
+        )
+        with TemporaryDirectory() as tmp:
+            with patch.object(openai_register, "register_failure_dir", Path(tmp)):
+                with self.assertRaises(openai_register.RegistrationStepError) as ctx:
+                    openai_register._raise_step_failure(
+                        7,
+                        "user_register",
+                        "POST",
+                        "https://auth.openai.com/api/accounts/user/register",
+                        response,
+                        request_headers={"authorization": "Bearer secret", "user-agent": "UA"},
+                        request_body={"username": "user@example.com", "password": "secret-password"},
+                    )
+
+            self.assertIn("上游拒绝创建账号", ctx.exception.diagnosis)
+            artifact = Path(ctx.exception.artifact_path)
+            self.assertTrue(artifact.exists())
+            metadata = (artifact / "metadata.json").read_text(encoding="utf-8")
+            body = (artifact / "response_body.json").read_text(encoding="utf-8")
+            self.assertIn("user_register", metadata)
+            self.assertIn("***redacted***", metadata)
+            self.assertNotIn("secret-password", metadata)
+            self.assertNotIn("secret-token-value", body)
+
+    def test_sentinel_headers_include_so_token_when_backend_returns_so(self):
+        class SentinelSession:
+            def post(self, *args, **kwargs):
+                return FakeResponse(
+                    status_code=200,
+                    text="{}",
+                    headers={"content-type": "application/json"},
+                    url="https://sentinel.openai.com/backend-api/sentinel/req",
+                )
+
+        with patch.object(FakeResponse, "json", return_value={"token": "challenge-token", "so": "so-token", "proofofwork": {"required": False}}):
+            headers = openai_register.build_sentinel_headers(SentinelSession(), "device-1", "oauth_create_account")
+
+        self.assertIn("openai-sentinel-token", headers)
+        self.assertIn("openai-sentinel-so-token", headers)
+        self.assertIn('"c":"challenge-token"', headers["openai-sentinel-so-token"])
+        self.assertIn('"so":"so-token"', headers["openai-sentinel-so-token"])
+        self.assertIn('"flow":"oauth_create_account"', headers["openai-sentinel-so-token"])
 
 
 if __name__ == "__main__":

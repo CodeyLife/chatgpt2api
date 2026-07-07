@@ -99,7 +99,15 @@ DEFAULT_SENTINEL_USER_AGENT = (
 DEFAULT_SENTINEL_SEC_CH_UA = '"Chromium";v="145", "Google Chrome";v="145", "Not/A)Brand";v="99"'
 
 
-def build_sentinel_token(
+def _first_text(data: dict, *keys: str) -> str:
+    for key in keys:
+        value = str(data.get(key) or "").strip()
+        if value:
+            return value
+    return ""
+
+
+def build_sentinel_tokens(
     session: "Session",
     device_id: str,
     flow: str,
@@ -110,8 +118,8 @@ def build_sentinel_token(
     hardware_concurrency: int = 8,
     sec_ch_ua_platform: str = '"Windows"',
     sdk_url: str = "",
-) -> tuple[str, str]:
-    """请求 sentinel token 并返回 (sentinel_header_value, oai_sc_cookie_value)。
+) -> tuple[str, str, str]:
+    """请求 sentinel token 并返回 (sentinel_header_value, oai_sc_cookie_value, so_header_value)。
 
     Args:
         session: curl_cffi Session 实例
@@ -125,7 +133,7 @@ def build_sentinel_token(
         sdk_url: sentinel SDK URL，OpenAI 更新 SDK 后可覆盖
 
     Returns:
-        (openai-sentinel-token header value, oai-sc cookie value) 元组
+        (openai-sentinel-token header value, oai-sc cookie value, openai-sentinel-so-token header value) 元组
 
     Raises:
         RuntimeError: sentinel 请求失败
@@ -162,11 +170,12 @@ def build_sentinel_token(
             {"p": generator.generate_requirements_token(), "t": "", "c": "", "id": device_id, "flow": flow},
             separators=(",", ":"),
         )
-        return fallback, ""
+        return fallback, "", ""
 
     token = str(data.get("token") or "").strip()
     if resp.status_code != 200 or not token:
         raise RuntimeError(f"sentinel_req_failed_{resp.status_code}")
+    so_token = _first_text(data, "so", "so_token", "sentinel_so", "sentinel_so_token", "openai_sentinel_so_token")
     pow_data = data.get("proofofwork") or {}
     p_value = (
         generator.generate_token(str(pow_data.get("seed") or ""), str(pow_data.get("difficulty") or "0"))
@@ -174,6 +183,38 @@ def build_sentinel_token(
         else generator.generate_requirements_token()
     )
     sentinel_value = json.dumps({"p": p_value, "t": "", "c": token, "id": device_id, "flow": flow}, separators=(",", ":"))
+    so_value = (
+        json.dumps({"so": so_token, "c": token, "id": device_id, "flow": flow}, separators=(",", ":"))
+        if so_token
+        else ""
+    )
     # oai-sc cookie = "0" + sentinel token "c" value (the challenge token from the server)
     oai_sc_value = "0" + token
+    return sentinel_value, oai_sc_value, so_value
+
+
+def build_sentinel_token(
+    session: "Session",
+    device_id: str,
+    flow: str,
+    *,
+    user_agent: str = "",
+    sec_ch_ua: str = "",
+    screen_resolution: str = "1920x1080",
+    hardware_concurrency: int = 8,
+    sec_ch_ua_platform: str = '"Windows"',
+    sdk_url: str = "",
+) -> tuple[str, str]:
+    """请求 sentinel token 并返回兼容旧调用方的 (sentinel_header_value, oai_sc_cookie_value)。"""
+    sentinel_value, oai_sc_value, _so_value = build_sentinel_tokens(
+        session,
+        device_id,
+        flow,
+        user_agent=user_agent,
+        sec_ch_ua=sec_ch_ua,
+        screen_resolution=screen_resolution,
+        hardware_concurrency=hardware_concurrency,
+        sec_ch_ua_platform=sec_ch_ua_platform,
+        sdk_url=sdk_url,
+    )
     return sentinel_value, oai_sc_value
