@@ -191,16 +191,27 @@ def _json_get(url: str, timeout: float) -> Any:
 
 def _select_page(port: int, timeout: float) -> dict[str, Any]:
     tabs = _json_get(f"http://127.0.0.1:{port}/json", timeout)
-    pages = [
+    browser_pages = [
         item
         for item in tabs
         if item.get("type") == "page"
-        and str(item.get("url") or "").startswith("https://auth.openai.com")
         and item.get("webSocketDebuggerUrl")
     ]
-    if not pages:
-        raise RuntimeError(f"未找到 auth.openai.com page target: {tabs!r}")
-    return pages[0]
+    preferred_hosts = (
+        "https://auth.openai.com",
+        # auth.openai.com/ 会按当前上游路由跳到 ChatGPT 登录入口；这仍是真实
+        # Chromium 页面，可用于执行 Sentinel SDK。之前只接受 auth host 会导致
+        # 误判 target 不存在并回退后端 PoW。
+        "https://chatgpt.com/auth/",
+        "https://chat.openai.com/auth/",
+    )
+    for prefix in preferred_hosts:
+        for page in browser_pages:
+            if str(page.get("url") or "").startswith(prefix):
+                return page
+    if browser_pages:
+        return browser_pages[0]
+    raise RuntimeError(f"未找到可执行 Sentinel SDK 的 page target: {tabs!r}")
 
 
 def _window_size_arg(screen_resolution: str) -> str:
@@ -232,6 +243,7 @@ def build_chromium_sentinel_token(
         chrome,
         "--disable-gpu",
         "--disable-extensions",
+        "--disable-component-extensions-with-background-pages",
         "--no-first-run",
         "--no-default-browser-check",
         "--remote-debugging-port=0",

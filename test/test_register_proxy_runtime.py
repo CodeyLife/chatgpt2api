@@ -6,6 +6,7 @@ from unittest.mock import patch
 from services.proxy_service import ClearanceBundle
 from services.register import openai_register
 from utils import fingerprint
+from utils import chromium_sentinel
 
 
 class FakeResponse:
@@ -314,6 +315,25 @@ class RegisterProxyRuntimeTests(unittest.TestCase):
                     sentinel_browser_enabled=True,
                     sentinel_browser_fallback=False,
                 )
+
+    def test_chromium_sentinel_accepts_chatgpt_auth_redirect_target(self):
+        tabs = [
+            {
+                "type": "background_page",
+                "url": "chrome-extension://example/background.html",
+                "webSocketDebuggerUrl": "ws://127.0.0.1/devtools/page/background",
+            },
+            {
+                "type": "page",
+                "url": "https://chatgpt.com/auth/login_with?callback_path=/",
+                "webSocketDebuggerUrl": "ws://127.0.0.1/devtools/page/chatgpt",
+            },
+        ]
+
+        with patch.object(chromium_sentinel, "_json_get", return_value=tabs):
+            page = chromium_sentinel._select_page(9222, 1)
+
+        self.assertEqual(page["webSocketDebuggerUrl"], "ws://127.0.0.1/devtools/page/chatgpt")
 
     def test_new_registration_profile_matches_successful_browser_sample(self):
         profile = fingerprint.random_profile()
