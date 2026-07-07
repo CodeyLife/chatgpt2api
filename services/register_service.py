@@ -69,7 +69,7 @@ def _normalize(raw: dict) -> dict:
     cfg["check_interval"] = max(1, int(cfg.get("check_interval") or 5))
     cfg["register_interval_min"] = max(0.0, float(cfg.get("register_interval_min") or 2.0))
     cfg["register_interval_max"] = max(cfg["register_interval_min"], float(cfg.get("register_interval_max") or 6.0))
-    cfg["sentinel_browser_enabled"] = _safe_bool(cfg.get("sentinel_browser_enabled"), True)
+    cfg["sentinel_browser_enabled"] = _safe_bool(cfg.get("sentinel_browser_enabled"), False)
     cfg["sentinel_browser_headless"] = _safe_bool(cfg.get("sentinel_browser_headless"), True)
     cfg["sentinel_browser_timeout"] = max(5.0, float(cfg.get("sentinel_browser_timeout") or 35.0))
     cfg["sentinel_browser_chrome_path"] = str(cfg.get("sentinel_browser_chrome_path") or "").strip()

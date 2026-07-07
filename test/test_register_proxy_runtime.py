@@ -248,6 +248,12 @@ class RegisterProxyRuntimeTests(unittest.TestCase):
         self.assertIn('"so":"so-token"', headers["openai-sentinel-so-token"])
         self.assertIn('"flow":"oauth_create_account"', headers["openai-sentinel-so-token"])
 
+    def test_sentinel_browser_is_disabled_by_default_for_registrar(self):
+        with patch.object(openai_register, "config", {**openai_register.config, "sentinel_browser_enabled": None}):
+            options = openai_register._sentinel_browser_options()
+
+        self.assertFalse(options["sentinel_browser_enabled"])
+
     def test_sentinel_headers_can_use_chromium_sdk_provider(self):
         class SentinelSession:
             def post(self, *args, **kwargs):
