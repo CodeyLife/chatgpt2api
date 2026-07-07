@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import random
+import re
 import threading
 import time
 import uuid
@@ -15,6 +16,19 @@ from services.register import mail_provider, openai_register
 
 
 REGISTER_FILE = DATA_DIR / "register.json"
+REGISTER_LOG_DETAIL_PATTERNS = (
+    re.compile(r"，?需要查看本地抓包目录[^;]*"),
+    re.compile(r";\s*抓包目录=[^;]*"),
+    re.compile(r";\s*url=[^;]*"),
+    re.compile(r";\s*content_type=[^;]*"),
+    re.compile(r";\s*cf-ray=[^;]*"),
+    re.compile(r";\s*x-request-id=[^;]*"),
+    re.compile(r";\s*openai-processing-ms=[^;]*"),
+    re.compile(r";\s*json=.*$"),
+    re.compile(r";\s*body=.*$"),
+    re.compile(r"本地抓包目录"),
+    re.compile(r"抓包目录"),
+)
 
 
 def _serialize_outlook_pool(credentials: list[dict]) -> str:
@@ -35,6 +49,18 @@ def _merge_outlook_pool(old_text: str, new_text: str) -> str:
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _sanitize_realtime_log_text(text: str) -> str:
+    """注册页实时日志只展示流程摘要，隐藏本地抓包目录和上游响应细节。
+
+    详细诊断仍保留在进程日志、worker 返回值和 data/register_failures 文件里；
+    这里仅过滤前端/SSE 的实时日志，避免页面被长路径、响应头、JSON body 刷屏。
+    """
+    sanitized = str(text).replace("；", ";").replace("写入注册失败抓包目录失败", "写入注册失败诊断文件失败")
+    for pattern in REGISTER_LOG_DETAIL_PATTERNS:
+        sanitized = pattern.sub("", sanitized)
+    return sanitized.strip()
 
 
 def _default_config() -> dict:
@@ -93,8 +119,8 @@ class RegisterService:
         self._store_file = store_file
         self._lock = threading.RLock()
         self._runner: threading.Thread | None = None
-        # 注册页不再暴露实时日志；openai_register.log 仍会输出到进程日志。
-        openai_register.register_log_sink = None
+        self._logs: list[dict] = []
+        openai_register.register_log_sink = self._append_log
         self._config = self._load()
         if self._config["enabled"]:
             self.start()
@@ -111,9 +137,9 @@ class RegisterService:
 
     def get(self) -> dict:
         with self._lock:
+            # logs 是只读追加列表，浅拷贝即可（条目写入后不会被修改）
             # config 需要深拷贝，因为 _redact_outlook_pools 会修改嵌套 dict。
-            # 实时日志已删除：不再把运行日志放入 GET/SSE payload。
-            snapshot = json.loads(json.dumps(self._config, ensure_ascii=False))
+            snapshot = {**json.loads(json.dumps(self._config, ensure_ascii=False)), "logs": list(self._logs[-300:])}
         self._redact_outlook_pools(snapshot)
         return snapshot
 
@@ -207,6 +233,7 @@ class RegisterService:
                 return self.get()
             self._config["enabled"] = True
             self._drop_mail_proxy()
+            self._logs = []
             metrics = self._pool_metrics()
             self._config["stats"] = {"job_id": uuid.uuid4().hex, "success": 0, "fail": 0, "done": 0, "running": 0, "threads": self._config["threads"], **metrics, "started_at": _now(), "updated_at": _now()}
             openai_register.config.update(_runtime_config_payload(self._config))
@@ -228,6 +255,7 @@ class RegisterService:
 
     def reset(self) -> dict:
         with self._lock:
+            self._logs = []
             self._config["stats"] = {"success": 0, "fail": 0, "done": 0, "running": 0, "threads": self._config["threads"], "elapsed_seconds": 0, "avg_seconds": 0, "success_rate": 0, **self._pool_metrics(), "updated_at": _now()}
             with openai_register.stats_lock:
                 openai_register.stats.update({"done": 0, "success": 0, "fail": 0, "start_time": 0.0})
@@ -253,8 +281,9 @@ class RegisterService:
         return self.get()
 
     def _append_log(self, text: str, color: str = "") -> None:
-        # 兼容旧调用点；注册页实时日志已删除，运行日志只保留在进程 stdout/stderr。
-        return None
+        with self._lock:
+            self._logs.append({"time": _now(), "text": _sanitize_realtime_log_text(text), "level": str(color or "info")})
+            self._logs = self._logs[-300:]
 
     def _pool_metrics(self) -> dict:
         items = account_service.list_accounts()

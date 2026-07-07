@@ -368,6 +368,11 @@ export type RegisterConfig = {
     updated_at?: string;
     finished_at?: string;
   };
+  logs?: Array<{
+    time: string;
+    text: string;
+    level: string;
+  }>;
 };
 
 export async function login(authKey: string) {

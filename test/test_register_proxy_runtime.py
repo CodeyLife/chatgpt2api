@@ -249,13 +249,34 @@ class RegisterProxyRuntimeTests(unittest.TestCase):
         self.assertIn('"so":"so-token"', headers["openai-sentinel-so-token"])
         self.assertIn('"flow":"oauth_create_account"', headers["openai-sentinel-so-token"])
 
-    def test_register_service_get_does_not_expose_realtime_logs(self):
+    def test_register_service_get_exposes_sanitized_realtime_logs(self):
         with TemporaryDirectory() as tmp:
             service = RegisterService(Path(tmp) / "register.json")
-            service._append_log("should stay internal", "yellow")
+            service._append_log(
+                "任务5 注册失败，本次耗时8.4s，原因: create_account_http_400; status=400; "
+                "诊断=create_account 返回 HTTP 400，需要查看本地抓包目录中的 metadata.json 和 response_body.*; "
+                "抓包目录=C:\\chatgpt2api\\data\\register_failures\\20260707_task5_create_account_400; "
+                "url=https://auth.openai.com/api/accounts/create_account, content_type=application/json, "
+                "cf-ray=a1770a7b6ce55e6f-LAX, x-request-id=819ea02f-1f4b-45e7-9160-baff69339d5f, "
+                "openai-processing-ms=391, json={\"error\": {\"code\": \"registration_disallowed\"}}",
+                "red",
+            )
             snapshot = service.get()
 
-        self.assertNotIn("logs", snapshot)
+        self.assertIn("logs", snapshot)
+        self.assertEqual(len(snapshot["logs"]), 1)
+        log_text = snapshot["logs"][0]["text"]
+        self.assertIn("create_account_http_400", log_text)
+        self.assertNotIn("抓包目录", log_text)
+        self.assertNotIn("metadata.json", log_text)
+        self.assertNotIn("response_body", log_text)
+        self.assertNotIn("register_failures", log_text)
+        self.assertNotIn("url=https://auth.openai.com", log_text)
+        self.assertNotIn("content_type=", log_text)
+        self.assertNotIn("cf-ray=", log_text)
+        self.assertNotIn("x-request-id=", log_text)
+        self.assertNotIn("openai-processing-ms=", log_text)
+        self.assertNotIn("json=", log_text)
 
     def test_sentinel_browser_is_enabled_by_default_for_registrar(self):
         with patch.object(openai_register, "config", {**openai_register.config, "sentinel_browser_enabled": None}):

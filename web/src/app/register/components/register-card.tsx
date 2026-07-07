@@ -46,6 +46,7 @@ export function RegisterCard() {
 
   const stats = config.stats || { success: 0, fail: 0, done: 0, running: 0, threads: config.threads };
   const providers = config.mail.providers || [];
+  const logs = config.logs || [];
   const updateProviderType = (index: number, type: string) => {
     updateProvider(index, {
       type,
@@ -83,7 +84,7 @@ export function RegisterCard() {
 
           <div className="flex items-start gap-2 rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-xs leading-5 text-sky-800">
             <AlertTriangle className="mt-0.5 size-4 shrink-0" />
-            <span>如果注册失败，后端会把失败网页/JSON 响应保存到 data/register_failures；Cloudflare 拦截可在设置页启用 FlareSolverr 清障。</span>
+            <span>如果注册失败，后端会保存失败网页/JSON 响应用于诊断；Cloudflare 拦截可在设置页启用 FlareSolverr 清障。</span>
           </div>
 
           <div className="grid gap-4 md:grid-cols-3">
@@ -415,6 +416,29 @@ export function RegisterCard() {
             </div>
         </div>
 
+        <div className="mt-4 flex min-h-0 flex-1 flex-col space-y-3 overflow-hidden border-t border-stone-200 pt-4">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="text-sm font-semibold text-stone-900">实时日志</h3>
+                <p className="mt-1 text-xs text-stone-500">展示注册流程进度；详细失败响应仍保存在后端诊断文件中。</p>
+              </div>
+              <Badge variant="secondary" className="rounded-md">
+                {logs.length}
+              </Badge>
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto border border-stone-200 bg-white/70 p-3 font-mono text-xs leading-6">
+              {logs.length === 0 ? (
+                <div className="text-stone-500">暂无日志</div>
+              ) : (
+                logs.slice().reverse().map((item, index) => (
+                  <div key={`${item.time}-${index}`} className={item.level === "red" ? "text-rose-600" : item.level === "green" ? "text-emerald-700" : item.level === "yellow" ? "text-amber-700" : "text-stone-700"}>
+                    <span className="text-stone-400">{new Date(item.time).toLocaleTimeString()}</span>
+                    <span className="pl-2">{item.text}</span>
+                  </div>
+                ))
+              )}
+            </div>
+        </div>
       </section>
     </div>
   );
