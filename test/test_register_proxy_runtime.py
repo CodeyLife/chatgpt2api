@@ -350,7 +350,28 @@ class RegisterProxyRuntimeTests(unittest.TestCase):
             )
         )
         self.assertTrue(chromium_sentinel._is_target_navigation_error(RuntimeError("Execution context was destroyed.")))
+        self.assertTrue(chromium_sentinel._is_target_navigation_error(RuntimeError("Cannot find default execution context")))
         self.assertFalse(chromium_sentinel._is_target_navigation_error(RuntimeError("sentinel token timeout")))
+
+    def test_chromium_sentinel_startup_error_includes_chrome_stderr(self):
+        class FakeProcess:
+            def poll(self):
+                return 1
+
+        with TemporaryDirectory() as tmp:
+            stderr_path = Path(tmp) / "chrome-stderr.log"
+            stderr_path.write_text("No usable sandbox! Update your kernel or use --no-sandbox", encoding="utf-8")
+            error = chromium_sentinel._chrome_startup_error(
+                TimeoutError("等待 Chrome DevToolsActivePort 超时"),
+                FakeProcess(),
+                "/usr/bin/google-chrome",
+                stderr_path,
+            )
+
+        message = str(error)
+        self.assertIn("等待 Chrome DevToolsActivePort 超时", message)
+        self.assertIn("/usr/bin/google-chrome", message)
+        self.assertIn("No usable sandbox", message)
 
     def test_new_registration_profile_matches_successful_browser_sample(self):
         profile = fingerprint.random_profile()

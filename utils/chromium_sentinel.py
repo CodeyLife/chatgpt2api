@@ -30,6 +30,12 @@ DEFAULT_CHROME_PATHS = [
     r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
     r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
     str(Path.home() / r"AppData\Local\Microsoft\Edge\Application\msedge.exe"),
+    "/usr/bin/google-chrome",
+    "/usr/bin/google-chrome-stable",
+    "/usr/bin/chromium",
+    "/usr/bin/chromium-browser",
+    "/snap/bin/chromium",
+    "/opt/google/chrome/chrome",
 ]
 
 
@@ -140,6 +146,16 @@ def _find_chrome(chrome_path: str = "") -> str:
     explicit = str(chrome_path or os.getenv("CHATGPT2API_CHROME_PATH") or "").strip()
     candidates = [explicit] if explicit else []
     candidates.extend(DEFAULT_CHROME_PATHS)
+    candidates.extend(
+        shutil.which(name) or ""
+        for name in (
+            "google-chrome",
+            "google-chrome-stable",
+            "chromium",
+            "chromium-browser",
+            "msedge",
+        )
+    )
     for candidate in candidates:
         if candidate and Path(candidate).exists():
             return candidate
@@ -231,8 +247,28 @@ def _is_target_navigation_error(error: Exception) -> bool:
         or "target closed" in text
         or "session closed" in text
         or "cannot find context with specified id" in text
+        or "cannot find default execution context" in text
         or "execution context was destroyed" in text
     )
+
+
+def _chrome_stderr_tail(stderr_path: Path, limit: int = 1600) -> str:
+    try:
+        data = stderr_path.read_bytes()
+    except Exception:
+        return ""
+    return data[-limit:].decode("utf-8", errors="replace").strip()
+
+
+def _chrome_startup_error(error: Exception, proc: subprocess.Popen, chrome: str, stderr_path: Path) -> RuntimeError:
+    stderr_tail = _chrome_stderr_tail(stderr_path)
+    exit_code = proc.poll()
+    detail = f"{error}; chrome={chrome}; exit_code={exit_code}"
+    if stderr_tail:
+        detail += f"; stderr_tail={stderr_tail}"
+    else:
+        detail += "; stderr_tail=<empty>"
+    return RuntimeError(detail)
 
 
 def build_chromium_sentinel_token(
@@ -250,11 +286,20 @@ def build_chromium_sentinel_token(
     chrome = _find_chrome(chrome_path)
     sdk_source = _load_sdk(sdk_url, user_agent, min(20.0, timeout))
     user_data_dir = Path(tempfile.mkdtemp(prefix="chatgpt2api-sentinel-chrome-"))
+    stderr_path = user_data_dir / "chrome-stderr.log"
+    extra_args = [
+        item.strip()
+        for item in str(os.getenv("CHATGPT2API_CHROME_ARGS") or "").split()
+        if item.strip()
+    ]
     args = [
         chrome,
         "--disable-gpu",
         "--disable-extensions",
         "--disable-component-extensions-with-background-pages",
+        "--disable-dev-shm-usage",
+        "--disable-setuid-sandbox",
+        "--no-sandbox",
         "--no-first-run",
         "--no-default-browser-check",
         "--remote-debugging-port=0",
@@ -267,9 +312,15 @@ def build_chromium_sentinel_token(
     ]
     if headless:
         args.insert(1, "--headless=new")
-    proc = subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    if extra_args:
+        args[1:1] = extra_args
+    stderr_file = stderr_path.open("wb")
+    proc = subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=stderr_file)
     try:
-        port = _read_devtools_port(user_data_dir, min(10.0, timeout))
+        try:
+            port = _read_devtools_port(user_data_dir, min(15.0, timeout))
+        except Exception as error:
+            raise _chrome_startup_error(error, proc, chrome, stderr_path) from error
         # 给 auth 页面和 Cloudflare/iframe 初始化一点时间；后续 SDK 调用还有独立超时。
         time.sleep(2.0)
         expression = f"""
@@ -329,6 +380,10 @@ def build_chromium_sentinel_token(
             raise RuntimeError(f"Chromium Sentinel 未返回 token: {value!r}")
         return ChromiumSentinelResult(token=str(value["token"]).strip(), so_token=str(value.get("soToken") or "").strip())
     finally:
+        try:
+            stderr_file.close()
+        except Exception:
+            pass
         proc.terminate()
         try:
             proc.wait(timeout=5)
