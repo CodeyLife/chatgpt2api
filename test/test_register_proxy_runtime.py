@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 from services.proxy_service import ClearanceBundle
 from services.register import openai_register
+from services.register_service import RegisterService
 from utils import fingerprint
 from utils import chromium_sentinel
 
@@ -247,6 +248,14 @@ class RegisterProxyRuntimeTests(unittest.TestCase):
         self.assertIn('"c":"challenge-token"', headers["openai-sentinel-so-token"])
         self.assertIn('"so":"so-token"', headers["openai-sentinel-so-token"])
         self.assertIn('"flow":"oauth_create_account"', headers["openai-sentinel-so-token"])
+
+    def test_register_service_get_does_not_expose_realtime_logs(self):
+        with TemporaryDirectory() as tmp:
+            service = RegisterService(Path(tmp) / "register.json")
+            service._append_log("should stay internal", "yellow")
+            snapshot = service.get()
+
+        self.assertNotIn("logs", snapshot)
 
     def test_sentinel_browser_is_enabled_by_default_for_registrar(self):
         with patch.object(openai_register, "config", {**openai_register.config, "sentinel_browser_enabled": None}):

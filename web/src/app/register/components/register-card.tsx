@@ -46,7 +46,6 @@ export function RegisterCard() {
 
   const stats = config.stats || { success: 0, fail: 0, done: 0, running: 0, threads: config.threads };
   const providers = config.mail.providers || [];
-  const logs = config.logs || [];
   const updateProviderType = (index: number, type: string) => {
     updateProvider(index, {
       type,
@@ -416,29 +415,6 @@ export function RegisterCard() {
             </div>
         </div>
 
-        <div className="mt-4 flex min-h-0 flex-1 flex-col space-y-3 overflow-hidden border-t border-stone-200 pt-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="text-sm font-semibold text-stone-900">实时日志</h3>
-                <p className="mt-1 text-xs text-amber-700">遇到失败先看日志中的“诊断”和“抓包目录”，再根据 response_body/metadata 判断邮箱、代理、CF 或上游流程变化。</p>
-              </div>
-              <Badge variant="secondary" className="rounded-md">
-                {logs.length}
-              </Badge>
-            </div>
-            <div className="min-h-0 flex-1 overflow-y-auto border border-stone-200 bg-white/70 p-3 font-mono text-xs leading-6">
-              {logs.length === 0 ? (
-                <div className="text-stone-500">暂无日志</div>
-              ) : (
-                logs.slice().reverse().map((item, index) => (
-                  <div key={`${item.time}-${index}`} className={item.level === "red" ? "text-rose-600" : item.level === "green" ? "text-emerald-700" : item.level === "yellow" ? "text-amber-700" : "text-stone-700"}>
-                    <span className="text-stone-400">{new Date(item.time).toLocaleTimeString()}</span>
-                    <span className="pl-2">{item.text}</span>
-                  </div>
-                ))
-              )}
-            </div>
-        </div>
       </section>
     </div>
   );

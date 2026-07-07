@@ -93,8 +93,8 @@ class RegisterService:
         self._store_file = store_file
         self._lock = threading.RLock()
         self._runner: threading.Thread | None = None
-        self._logs: list[dict] = []
-        openai_register.register_log_sink = self._append_log
+        # 注册页不再暴露实时日志；openai_register.log 仍会输出到进程日志。
+        openai_register.register_log_sink = None
         self._config = self._load()
         if self._config["enabled"]:
             self.start()
@@ -111,9 +111,9 @@ class RegisterService:
 
     def get(self) -> dict:
         with self._lock:
-            # logs 是只读追加列表，浅拷贝即可（条目写入后不会被修改）
-            # config 需要深拷贝，因为 _redact_outlook_pools 会修改嵌套 dict
-            snapshot = {**json.loads(json.dumps(self._config, ensure_ascii=False)), "logs": list(self._logs[-300:])}
+            # config 需要深拷贝，因为 _redact_outlook_pools 会修改嵌套 dict。
+            # 实时日志已删除：不再把运行日志放入 GET/SSE payload。
+            snapshot = json.loads(json.dumps(self._config, ensure_ascii=False))
         self._redact_outlook_pools(snapshot)
         return snapshot
 
@@ -207,7 +207,6 @@ class RegisterService:
                 return self.get()
             self._config["enabled"] = True
             self._drop_mail_proxy()
-            self._logs = []
             metrics = self._pool_metrics()
             self._config["stats"] = {"job_id": uuid.uuid4().hex, "success": 0, "fail": 0, "done": 0, "running": 0, "threads": self._config["threads"], **metrics, "started_at": _now(), "updated_at": _now()}
             openai_register.config.update(_runtime_config_payload(self._config))
@@ -229,7 +228,6 @@ class RegisterService:
 
     def reset(self) -> dict:
         with self._lock:
-            self._logs = []
             self._config["stats"] = {"success": 0, "fail": 0, "done": 0, "running": 0, "threads": self._config["threads"], "elapsed_seconds": 0, "avg_seconds": 0, "success_rate": 0, **self._pool_metrics(), "updated_at": _now()}
             with openai_register.stats_lock:
                 openai_register.stats.update({"done": 0, "success": 0, "fail": 0, "start_time": 0.0})
@@ -255,9 +253,8 @@ class RegisterService:
         return self.get()
 
     def _append_log(self, text: str, color: str = "") -> None:
-        with self._lock:
-            self._logs.append({"time": _now(), "text": str(text), "level": str(color or "info")})
-            self._logs = self._logs[-300:]
+        # 兼容旧调用点；注册页实时日志已删除，运行日志只保留在进程 stdout/stderr。
+        return None
 
     def _pool_metrics(self) -> dict:
         items = account_service.list_accounts()
