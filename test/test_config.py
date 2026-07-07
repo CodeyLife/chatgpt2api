@@ -58,6 +58,32 @@ class ConfigLoadingTests(unittest.TestCase):
                 else:
                     module.os.environ["CHATGPT2API_AUTH_KEY"] = old_env_auth_key
 
+    def test_image_convert_result_to_jpg_defaults_to_true(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = Path(tmp_dir) / "config.json"
+            path.write_text(json.dumps({"auth-key": "test-auth"}), encoding="utf-8")
+
+            store = self.config_module.ConfigStore(path)
+
+            self.assertTrue(store.image_convert_result_to_jpg)
+            self.assertTrue(store.get()["image_convert_result_to_jpg"])
+
+    def test_image_convert_result_to_jpg_normalizes_string_values(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            path = Path(tmp_dir) / "config.json"
+            path.write_text(
+                json.dumps({"auth-key": "test-auth", "image_convert_result_to_jpg": "off"}),
+                encoding="utf-8",
+            )
+
+            store = self.config_module.ConfigStore(path)
+            self.assertFalse(store.image_convert_result_to_jpg)
+            updated = store.update({"image_convert_result_to_jpg": "yes"})
+
+            self.assertTrue(updated["image_convert_result_to_jpg"])
+            reloaded = self.config_module.ConfigStore(path)
+            self.assertTrue(reloaded.image_convert_result_to_jpg)
+
 
 if __name__ == "__main__":
     unittest.main()

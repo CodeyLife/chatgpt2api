@@ -28,6 +28,7 @@ export function ConfigCard() {
   const setImageAccountConcurrency = useSettingsStore((state) => state.setImageAccountConcurrency);
   const setImageSettleEnabled = useSettingsStore((state) => state.setImageSettleEnabled);
   const setImageRemoveConversationAfterResult = useSettingsStore((state) => state.setImageRemoveConversationAfterResult);
+  const setImageConvertResultToJpg = useSettingsStore((state) => state.setImageConvertResultToJpg);
   const setImageSettleSecs = useSettingsStore((state) => state.setImageSettleSecs);
   const setImageTimeoutRetrySecs = useSettingsStore((state) => state.setImageTimeoutRetrySecs);
   const setAutoRemoveInvalidAccounts = useSettingsStore((state) => state.setAutoRemoveInvalidAccounts);
@@ -162,7 +163,7 @@ export function ConfigCard() {
             <Input
               value={String(config?.image_poll_timeout_secs || "")}
               onChange={(event) => setImagePollTimeoutSecs(event.target.value)}
-              placeholder="120"
+              placeholder="180"
               className="h-10 rounded-xl border-stone-200 bg-white"
             />
             <p className="text-xs text-stone-500">单位秒，等待上游图片结果的最长时间。</p>
@@ -206,6 +207,16 @@ export function ConfigCard() {
               <span className="text-sm text-stone-700">出图后移除本地对话</span>
             </div>
             <p className="text-xs text-stone-500">成功拿到图片后，异步隐藏 ChatGPT 侧对应的本地对话记录。</p>
+          </div>
+          <div className="space-y-2">
+            <div className="flex items-center gap-3 rounded-xl border border-stone-200 bg-white px-4 py-3">
+              <Checkbox
+                checked={Boolean(config?.image_convert_result_to_jpg !== false)}
+                onCheckedChange={(checked) => setImageConvertResultToJpg(Boolean(checked))}
+              />
+              <span className="text-sm text-stone-700">生图结果转为 JPG</span>
+            </div>
+            <p className="text-xs text-stone-500">开启后，后端会在返回前把结果图转为 JPG 并按 .jpg 保存。默认开启。</p>
           </div>
           <div className="space-y-2">
             <label className="text-sm text-stone-700">图片超时继续等待时间</label>

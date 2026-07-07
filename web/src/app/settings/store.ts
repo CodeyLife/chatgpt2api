@@ -175,11 +175,12 @@ function normalizeConfig(config: SettingsConfig): SettingsConfig {
     ...config,
     refresh_account_interval_minute: Number(config.refresh_account_interval_minute || 5),
     image_retention_days: Number(config.image_retention_days || 30),
-    image_poll_timeout_secs: Number(config.image_poll_timeout_secs || 120),
+    image_poll_timeout_secs: Number(config.image_poll_timeout_secs || 180),
     image_account_concurrency: Number(config.image_account_concurrency || 3),
     image_settle_enabled: Boolean(config.image_settle_enabled !== false),
     image_check_before_hit_enabled: Boolean(config.image_check_before_hit_enabled !== false),
     image_remove_conversation_after_result: Boolean(config.image_remove_conversation_after_result),
+    image_convert_result_to_jpg: Boolean(config.image_convert_result_to_jpg !== false),
     image_settle_secs: Number(config.image_settle_secs || 2.0),
     image_timeout_retry_secs: Number(config.image_timeout_retry_secs || 30),
     auto_remove_invalid_accounts: Boolean(config.auto_remove_invalid_accounts),
@@ -306,6 +307,7 @@ type SettingsStore = {
   setImageSettleEnabled: (value: boolean) => void;
   setImageCheckBeforeHitEnabled: (value: boolean) => void;
   setImageRemoveConversationAfterResult: (value: boolean) => void;
+  setImageConvertResultToJpg: (value: boolean) => void;
   setImageSettleSecs: (value: string) => void;
   setImageTimeoutRetrySecs: (value: string) => void;
   setAutoRemoveInvalidAccounts: (value: boolean) => void;
@@ -450,11 +452,12 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
         ...config,
         refresh_account_interval_minute: Math.max(1, Number(config.refresh_account_interval_minute) || 1),
         image_retention_days: Math.max(1, Number(config.image_retention_days) || 30),
-        image_poll_timeout_secs: Math.max(1, Number(config.image_poll_timeout_secs) || 120),
+        image_poll_timeout_secs: Math.max(1, Number(config.image_poll_timeout_secs) || 180),
         image_account_concurrency: Math.max(1, Number(config.image_account_concurrency) || 3),
         image_settle_enabled: Boolean(config.image_settle_enabled !== false),
         image_check_before_hit_enabled: Boolean(config.image_check_before_hit_enabled !== false),
         image_remove_conversation_after_result: Boolean(config.image_remove_conversation_after_result),
+        image_convert_result_to_jpg: Boolean(config.image_convert_result_to_jpg !== false),
         image_settle_secs: Math.max(0.5, Number(config.image_settle_secs) || 2.0),
         image_timeout_retry_secs: Math.max(1, Number(config.image_timeout_retry_secs) || 30),
         auto_remove_invalid_accounts: Boolean(config.auto_remove_invalid_accounts),
@@ -569,6 +572,10 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
 
   setImageRemoveConversationAfterResult: (value) => {
     set((state) => state.config ? { config: { ...state.config, image_remove_conversation_after_result: value } } : {});
+  },
+
+  setImageConvertResultToJpg: (value) => {
+    set((state) => state.config ? { config: { ...state.config, image_convert_result_to_jpg: value } } : {});
   },
 
   setImageSettleSecs: (value) => {

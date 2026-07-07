@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import io
 import json
 import re
 import threading
@@ -10,6 +11,7 @@ from dataclasses import dataclass, field
 from typing import Any, Iterable, Iterator
 
 import tiktoken
+from PIL import Image, ImageOps
 
 from services.account_service import account_service
 from services.config import config
@@ -166,6 +168,22 @@ def save_image_bytes(image_data: bytes, base_url: str | None = None) -> str:
     return image_storage_service.save(image_data, base_url).url
 
 
+def prepare_result_image_bytes(image_data: bytes) -> bytes:
+    if not config.image_convert_result_to_jpg:
+        return image_data
+    with Image.open(io.BytesIO(image_data)) as image:
+        image = ImageOps.exif_transpose(image)
+        if image.mode in {"RGBA", "LA"} or ("transparency" in image.info):
+            rgba = image.convert("RGBA")
+            background = Image.new("RGBA", rgba.size, (255, 255, 255, 255))
+            image = Image.alpha_composite(background, rgba).convert("RGB")
+        elif image.mode != "RGB":
+            image = image.convert("RGB")
+        buffer = io.BytesIO()
+        image.save(buffer, format="JPEG", quality=95, optimize=True)
+        return buffer.getvalue()
+
+
 def message_text(content: Any) -> str:
     if isinstance(content, str):
         return content
@@ -292,15 +310,17 @@ def format_image_result(
         if not b64_json:
             continue
         revised_prompt = str(item.get("revised_prompt") or prompt).strip() or prompt
+        image_bytes = prepare_result_image_bytes(base64.b64decode(b64_json))
+        image_url = save_image_bytes(image_bytes, base_url)
         if response_format == "b64_json":
             data.append({
-                "b64_json": b64_json,
-                "url": save_image_bytes(base64.b64decode(b64_json), base_url),
+                "b64_json": base64.b64encode(image_bytes).decode("ascii"),
+                "url": image_url,
                 "revised_prompt": revised_prompt,
             })
         else:
             data.append({
-                "url": save_image_bytes(base64.b64decode(b64_json), base_url),
+                "url": image_url,
                 "revised_prompt": revised_prompt,
             })
     result: dict[str, Any] = {"created": created or int(time.time()), "data": data}

@@ -395,9 +395,9 @@ class ConfigStore:
     @property
     def image_poll_timeout_secs(self) -> int:
         try:
-            return max(1, int(self.data.get("image_poll_timeout_secs", 120)))
+            return max(1, int(self.data.get("image_poll_timeout_secs", 180)))
         except (TypeError, ValueError):
-            return 120
+            return 180
 
     @property
     def image_poll_interval_secs(self) -> float:
@@ -453,6 +453,11 @@ class ConfigStore:
         if isinstance(value, str):
             return value.strip().lower() in {"1", "true", "yes", "on"}
         return bool(value)
+
+    @property
+    def image_convert_result_to_jpg(self) -> bool:
+        """生图结果返回前自动转为 JPG，默认开启。"""
+        return _normalize_bool(self.data.get("image_convert_result_to_jpg"), True)
 
     @property
     def image_settle_secs(self) -> float:
@@ -583,6 +588,7 @@ class ConfigStore:
         data["image_account_concurrency"] = self.image_account_concurrency
         data["image_parallel_generation"] = self.image_parallel_generation
         data["image_remove_conversation_after_result"] = self.image_remove_conversation_after_result
+        data["image_convert_result_to_jpg"] = self.image_convert_result_to_jpg
         data["auto_remove_invalid_accounts"] = self.auto_remove_invalid_accounts
         data["auto_remove_rate_limited_accounts"] = self.auto_remove_rate_limited_accounts
         data["auto_relogin_after_refresh"] = self.auto_relogin_after_refresh
@@ -634,6 +640,11 @@ class ConfigStore:
             )
         if "third_party_apps" in next_data:
             next_data["third_party_apps"] = _normalize_third_party_apps_settings(next_data.get("third_party_apps"))
+        if "image_convert_result_to_jpg" in next_data:
+            next_data["image_convert_result_to_jpg"] = _normalize_bool(
+                next_data.get("image_convert_result_to_jpg"),
+                True,
+            )
         if "proxy_runtime" in next_data:
             incoming_runtime = next_data.get("proxy_runtime")
             if isinstance(incoming_runtime, dict):
