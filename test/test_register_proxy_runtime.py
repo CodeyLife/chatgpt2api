@@ -335,6 +335,17 @@ class RegisterProxyRuntimeTests(unittest.TestCase):
 
         self.assertEqual(page["webSocketDebuggerUrl"], "ws://127.0.0.1/devtools/page/chatgpt")
 
+    def test_chromium_sentinel_detects_navigation_race_errors(self):
+        self.assertTrue(
+            chromium_sentinel._is_target_navigation_error(
+                RuntimeError(
+                    "CDP Runtime.evaluate failed: {'code': -32000, 'message': 'Inspected target navigated or closed'}"
+                )
+            )
+        )
+        self.assertTrue(chromium_sentinel._is_target_navigation_error(RuntimeError("Execution context was destroyed.")))
+        self.assertFalse(chromium_sentinel._is_target_navigation_error(RuntimeError("sentinel token timeout")))
+
     def test_new_registration_profile_matches_successful_browser_sample(self):
         profile = fingerprint.random_profile()
 

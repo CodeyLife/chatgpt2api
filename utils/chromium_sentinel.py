@@ -224,6 +224,17 @@ def _window_size_arg(screen_resolution: str) -> str:
     return f"--window-size={width},{height}"
 
 
+def _is_target_navigation_error(error: Exception) -> bool:
+    text = str(error).lower()
+    return (
+        "navigated or closed" in text
+        or "target closed" in text
+        or "session closed" in text
+        or "cannot find context with specified id" in text
+        or "execution context was destroyed" in text
+    )
+
+
 def build_chromium_sentinel_token(
     *,
     flow: str,
@@ -261,7 +272,6 @@ def build_chromium_sentinel_token(
         port = _read_devtools_port(user_data_dir, min(10.0, timeout))
         # 给 auth 页面和 Cloudflare/iframe 初始化一点时间；后续 SDK 调用还有独立超时。
         time.sleep(2.0)
-        page = _select_page(port, min(10.0, timeout))
         expression = f"""
 (async()=>{{
   const sdkSource = {json.dumps(sdk_source)};
@@ -285,13 +295,31 @@ def build_chromium_sentinel_token(
   return {{ token, soToken }};
 }})()
 """
-        with _CDPClient(str(page["webSocketDebuggerUrl"]), timeout=timeout) as client:
-            client.call("Runtime.enable", timeout=10)
-            response = client.call(
-                "Runtime.evaluate",
-                {"expression": expression, "awaitPromise": True, "returnByValue": True},
-                timeout=timeout + 5,
-            )
+        response = None
+        last_error: Exception | None = None
+        # 首次打开 auth.openai.com 后上游可能立刻跳到 chatgpt.com/auth/login_with，
+        # CDP 在 Runtime.evaluate 期间会偶发 target navigated/closed。这里重选
+        # 当前 page target 再试，避免直接回退后端 PoW。
+        for attempt in range(3):
+            if attempt:
+                time.sleep(0.75)
+            page = _select_page(port, min(10.0, timeout))
+            try:
+                with _CDPClient(str(page["webSocketDebuggerUrl"]), timeout=timeout) as client:
+                    client.call("Runtime.enable", timeout=10)
+                    response = client.call(
+                        "Runtime.evaluate",
+                        {"expression": expression, "awaitPromise": True, "returnByValue": True},
+                        timeout=timeout + 5,
+                    )
+                break
+            except Exception as error:
+                last_error = error
+                if attempt < 2 and _is_target_navigation_error(error):
+                    continue
+                raise
+        if response is None:
+            raise RuntimeError(f"Chromium Sentinel 执行失败: {last_error}")
         result = response.get("result", {}).get("result", {})
         if response.get("result", {}).get("exceptionDetails"):
             detail = response["result"]["exceptionDetails"]
