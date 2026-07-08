@@ -2631,7 +2631,7 @@ class OpenAIBackendAPI:
         )
         ensure_ok(response, path)
         try:
-            yield from iter_sse_payloads(response)
+            yield from iter_sse_payloads(response, stream_timeout_secs=timeout_secs or 300)
         finally:
             response.close()
 
@@ -2664,7 +2664,7 @@ class OpenAIBackendAPI:
         response = self._start_image_generation(prompt, requirements, conduit_token, model, references, timeout_secs)
         self._report_progress("generating")
         try:
-            yield from iter_sse_payloads(response)
+            yield from iter_sse_payloads(response, stream_timeout_secs=timeout_secs)
         finally:
             response.close()
 

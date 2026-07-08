@@ -32,6 +32,10 @@ DATA_URL_IMAGE_RE = re.compile(r"^data:(?P<mime>[-+./\w]+);base64,(?P<data>.*)$"
 REMOTE_IMAGE_TIMEOUT_SECONDS = 20
 
 
+class SSEStreamTimeoutError(TimeoutError):
+    pass
+
+
 def _image_extension(mime_type: str) -> str:
     image_type = mime_type.split("/", 1)[1].split(";", 1)[0].lower() if "/" in mime_type else "png"
     return "jpg" if image_type == "jpeg" else image_type or "png"
@@ -226,16 +230,50 @@ def anthropic_sse_stream(items) -> Iterator[str]:
         yield f"data: {json.dumps(error, ensure_ascii=False)}\n\n"
 
 
-def iter_sse_payloads(response: requests.Response) -> Iterator[str]:
-    for raw_line in response.iter_lines():
-        if not raw_line:
-            continue
-        line = raw_line.decode("utf-8", errors="ignore") if isinstance(raw_line, bytes) else str(raw_line)
-        if not line.startswith("data:"):
-            continue
-        payload = line[5:].strip()
-        if payload:
-            yield payload
+def iter_sse_payloads(
+    response: requests.Response,
+    stream_timeout_secs: float | None = None,
+) -> Iterator[str]:
+    """逐行读取 SSE 流。
+
+    stream_timeout_secs: 单次流式读取的总耗时上限。curl_cffi 的 timeout 参数在
+    stream=True 时不限制 iter_lines() 的阻塞时长，需要通过看门狗 Timer 强制
+    关闭 response 来中断阻塞。
+    """
+    import threading
+
+    timed_out = threading.Event()
+    watchdog: threading.Timer | None = None
+    if stream_timeout_secs and stream_timeout_secs > 0:
+        def _force_close() -> None:
+            timed_out.set()
+            try:
+                response.close()
+            except Exception:
+                pass
+        watchdog = threading.Timer(stream_timeout_secs, _force_close)
+        watchdog.daemon = True
+        watchdog.start()
+
+    try:
+        for raw_line in response.iter_lines():
+            if not raw_line:
+                continue
+            line = raw_line.decode("utf-8", errors="ignore") if isinstance(raw_line, bytes) else str(raw_line)
+            if not line.startswith("data:"):
+                continue
+            payload = line[5:].strip()
+            if payload:
+                yield payload
+    except Exception as exc:
+        if timed_out.is_set():
+            raise SSEStreamTimeoutError(f"SSE stream read timed out after {stream_timeout_secs:g} seconds") from exc
+        raise
+    finally:
+        if watchdog is not None:
+            watchdog.cancel()
+    if timed_out.is_set():
+        raise SSEStreamTimeoutError(f"SSE stream read timed out after {stream_timeout_secs:g} seconds")
 
 
 def save_images_from_text(text: str, prefix: str) -> list[Path]:

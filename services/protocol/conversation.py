@@ -709,7 +709,7 @@ def conversation_events(
         images=images if image_model else None,
         system_hints=["picture_v2"] if image_model else None,
         thinking_effort=thinking_effort if not image_model else "",
-        timeout_secs=_deadline_limited_timeout(300.0, deadline) if image_model else None,
+        timeout_secs=_deadline_limited_timeout(config.image_total_timeout_secs, deadline) if image_model else None,
     )
     yield from iter_conversation_payloads(payloads, history_text, history_messages)
 
@@ -738,6 +738,18 @@ def _deadline_limited_timeout(timeout_secs: float, deadline: float | None) -> fl
     if remaining <= 0:
         raise ImagePollTimeoutError("图片生成总耗时已超过配置上限。")
     return min(float(timeout_secs), remaining)
+
+
+def _image_total_timeout_error(deadline: float, account_email: str = "") -> ImageGenerationError:
+    timeout_secs = config.image_total_timeout_secs
+    elapsed = int(time.time() - (deadline - timeout_secs))
+    return ImageGenerationError(
+        f"图片生成总耗时超过 {timeout_secs} 秒上限（已等待 {elapsed} 秒）",
+        status_code=504,
+        error_type="server_error",
+        code="total_timeout_exceeded",
+        account_email=account_email,
+    )
 
 
 def _deadline_sleep(seconds: float, deadline: float | None) -> None:
@@ -1366,14 +1378,7 @@ def _generate_single_image(
     while True:
         # 全局 deadline 检查：超过总耗时上限立即失败
         if time.time() >= total_deadline:
-            elapsed = int(time.time() - (total_deadline - config.image_total_timeout_secs))
-            raise ImageGenerationError(
-                f"图片生成总耗时超过 {config.image_total_timeout_secs} 秒上限（已等待 {elapsed} 秒）",
-                status_code=504,
-                error_type="server_error",
-                code="total_timeout_exceeded",
-                account_email=account_email,
-            )
+            raise _image_total_timeout_error(total_deadline, account_email)
         try:
             if request.progress_callback:
                 request.progress_callback("getting_account")
@@ -1558,6 +1563,8 @@ def _generate_single_image(
             if not emitted_for_token and is_tls_connection_error(last_error):
                 tls_retry_count += 1
                 if tls_retry_count <= MAX_TLS_RETRIES:
+                    if time.time() >= total_deadline:
+                        raise _image_total_timeout_error(total_deadline, account_email) from exc
                     logger.warning({
                         "event": "image_stream_tls_retry",
                         "request_token": token,
@@ -1572,6 +1579,8 @@ def _generate_single_image(
             if not emitted_for_token and is_connection_timeout_error(last_error):
                 conn_timeout_retry_count += 1
                 if conn_timeout_retry_count <= MAX_CONN_TIMEOUT_RETRIES:
+                    if time.time() >= total_deadline:
+                        raise _image_total_timeout_error(total_deadline, account_email) from exc
                     wait_secs = min(3.0 * conn_timeout_retry_count, 9.0)
                     logger.warning({
                         "event": "image_stream_conn_timeout_retry",
@@ -1584,6 +1593,8 @@ def _generate_single_image(
                     })
                     _deadline_sleep(wait_secs, total_deadline)
                     continue
+            if time.time() >= total_deadline:
+                raise _image_total_timeout_error(total_deadline, account_email) from exc
             raise ImageGenerationError(image_stream_error_message(last_error), account_email=account_email, conversation_id="") from exc
         finally:
             if backend is not None:
