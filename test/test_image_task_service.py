@@ -170,6 +170,44 @@ class ImageTaskServiceTests(unittest.TestCase):
             self.assertEqual(task["completed_count"], 1)
             self.assertEqual(task["failed_indices"], [2])
             self.assertIn("late failure", task["error"])
+            self.assertEqual(task["failures"], [{"index": 2, "error": "late failure"}])
+
+    def test_streaming_task_exposes_per_image_failure_errors(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            def handler(_payload):
+                yield {
+                    "object": "image.generation.result",
+                    "index": 1,
+                    "total": 2,
+                    "data": [{"url": "http://example.test/one.png"}],
+                }
+                yield {
+                    "object": "image.generation.failure",
+                    "index": 2,
+                    "total": 2,
+                    "error": "E2",
+                    "_account_email": "image-account@example.test",
+                }
+
+            service = self.make_service(Path(tmp_dir) / "image_tasks.json", handler)
+            service.submit_generation(
+                OWNER,
+                client_task_id="per-image-fail-task",
+                prompt="cat",
+                model="gpt-image-2",
+                size=None,
+                base_url="http://local.test",
+                n=2,
+            )
+
+            task = wait_for_task(service, OWNER, "per-image-fail-task", "success")
+            self.assertEqual(task["completed_count"], 1)
+            self.assertEqual(task["failed_indices"], [2])
+            self.assertEqual(
+                task["failures"],
+                [{"index": 2, "error": "E2", "account_email": "image-account@example.test"}],
+            )
+            self.assertIn("第2张(E2)", task["error"])
 
     def test_streaming_task_uses_message_when_no_images_returned(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
@@ -195,6 +233,45 @@ class ImageTaskServiceTests(unittest.TestCase):
             self.assertEqual(task["completed_count"], 0)
             self.assertEqual(task["failed_indices"], [1, 2])
             self.assertIn("upstream policy blocked", task["error"])
+            self.assertEqual(
+                task["failures"],
+                [
+                    {"index": 1, "error": "upstream policy blocked this request"},
+                    {"index": 2, "error": "upstream policy blocked this request"},
+                ],
+            )
+
+    def test_streaming_task_exposes_all_failure_chunks_when_no_images_returned(self):
+        with tempfile.TemporaryDirectory() as tmp_dir:
+            def handler(_payload):
+                yield {
+                    "object": "image.generation.failure",
+                    "index": 1,
+                    "total": 2,
+                    "error": "E1",
+                }
+                yield {
+                    "object": "image.generation.failure",
+                    "index": 2,
+                    "total": 2,
+                    "error": "E2",
+                }
+
+            service = self.make_service(Path(tmp_dir) / "image_tasks.json", handler)
+            service.submit_generation(
+                OWNER,
+                client_task_id="all-failure-chunks-task",
+                prompt="cat",
+                model="gpt-image-2",
+                size=None,
+                base_url="http://local.test",
+                n=2,
+            )
+
+            task = wait_for_task(service, OWNER, "all-failure-chunks-task", "error")
+            self.assertEqual(task["completed_count"], 0)
+            self.assertEqual(task["failed_indices"], [1, 2])
+            self.assertEqual(task["failures"], [{"index": 1, "error": "E1"}, {"index": 2, "error": "E2"}])
 
     def test_streaming_generation_usage_includes_prompt_tokens(self):
         with tempfile.TemporaryDirectory() as tmp_dir:
