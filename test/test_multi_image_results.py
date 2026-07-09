@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import base64
+import threading
 import unittest
 from unittest import mock
 
 from services.config import config
 from services.openai_backend_api import OpenAIBackendAPI
-from services.protocol.conversation import ImageOutput, extract_conversation_ids
+from services.protocol import conversation
+from services.protocol.conversation import ConversationRequest, ImageOutput, extract_conversation_ids
 from services.protocol.openai_v1_response import stream_image_response
 
 
@@ -119,7 +121,12 @@ class MultiImageResultTests(unittest.TestCase):
         ])
 
         with (
-            mock.patch.dict(config.data, {"image_poll_initial_wait_secs": 0, "image_poll_interval_secs": 0.5}),
+            mock.patch.dict(config.data, {
+                "image_poll_initial_wait_secs": 0,
+                "image_poll_interval_secs": 0.5,
+                "image_check_before_hit_enabled": True,
+                "image_settle_enabled": True,
+            }),
             mock.patch("services.openai_backend_api.time.sleep", lambda _seconds: None),
         ):
             file_ids, sediment_ids = backend._poll_image_results("conv-1", timeout_secs=10)
@@ -174,6 +181,45 @@ class MultiImageResultTests(unittest.TestCase):
 
         self.assertEqual([event["output_index"] for event in done_events], [0, 1])
         self.assertEqual([item["result"] for item in completed["output"]], [first, second])
+
+    def test_parallel_pool_consumes_generator_results_in_workers(self) -> None:
+        active = 0
+        max_active = 0
+        lock = threading.Lock()
+        both_active = threading.Event()
+
+        def fake_generate(_request, index: int, total: int):
+            nonlocal active, max_active
+            with lock:
+                active += 1
+                max_active = max(max_active, active)
+                if active == 2:
+                    both_active.set()
+            try:
+                both_active.wait(0.5)
+                yield ImageOutput(
+                    kind="result",
+                    model="gpt-image-2",
+                    index=index,
+                    total=total,
+                    data=[{"url": f"http://example.test/{index}.png"}],
+                )
+            finally:
+                with lock:
+                    active -= 1
+
+        with (
+            mock.patch.dict(config.data, {"image_parallel_generation": True, "image_parallel_generation_max_workers": 2}),
+            mock.patch.object(conversation, "_generate_single_image", side_effect=fake_generate),
+        ):
+            outputs = list(conversation.stream_image_outputs_with_pool(ConversationRequest(
+                prompt="cat",
+                model="gpt-image-2",
+                n=2,
+            )))
+
+        self.assertEqual(len(outputs), 2)
+        self.assertEqual(max_active, 2)
 
 
 if __name__ == "__main__":

@@ -70,6 +70,7 @@
   },
   "image_account_concurrency": 3,
   "image_parallel_generation": true,
+  "image_parallel_generation_max_workers": 8,
   "image_poll_interval_secs": 10,
   "image_poll_initial_wait_secs": 10,
   "image_storage": {

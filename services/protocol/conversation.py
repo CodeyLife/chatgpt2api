@@ -1630,45 +1630,37 @@ def stream_image_outputs_with_pool(request: ConversationRequest) -> Iterator[Ima
         "event": "image_parallel_generation_start",
         "n": request.n,
         "model": request.model,
+        "max_workers": config.image_parallel_generation_max_workers,
     })
-    # 每张图片一个线程，同时启动
+    # 每张图片一个 future，由 max_workers 控制全局并发，future 完成后立即向调用方吐出结果。
     futures = {}
-    results: dict[int, list[ImageOutput]] = {}
     errors: dict[int, Exception] = {}
-    with ThreadPoolExecutor(max_workers=request.n) as executor:
+    emitted = False
+    last_error = ""
+    max_workers = min(request.n, config.image_parallel_generation_max_workers)
+
+    def run_single(index: int) -> list[ImageOutput]:
+        return list(_generate_single_image(request, index, request.n))
+
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
         for index in range(1, request.n + 1):
-            future = executor.submit(_generate_single_image, request, index, request.n)
+            future = executor.submit(run_single, index)
             futures[future] = index
 
-        # 按完成顺序收集结果
+        # 按完成顺序返回结果，避免一个慢任务阻塞已完成图片交付。
         for future in as_completed(futures):
             index = futures[future]
             try:
-                results[index] = future.result()
+                for output in future.result():
+                    emitted = True
+                    yield output
             except Exception as exc:
                 errors[index] = exc
+                last_error = str(exc)
                 logger.warning({
                     "event": "image_parallel_generation_error",
                     "index": index,
                     "error": str(exc)[:300],
-                })
-
-    # yield 结果：跳过索引顺序限制，不再让低索引失败阻塞高索引成功结果
-    emitted = False
-    last_error = ""
-    # 先 yield 所有成功的结果
-    for index in range(1, request.n + 1):
-        if index in results:
-            for output in results[index]:
-                emitted = True
-                yield output
-        elif index in errors:
-            last_error = str(errors[index])
-            if not emitted:
-                logger.warning({
-                    "event": "image_parallel_failure_before_success",
-                    "failed_index": index,
-                    "error": last_error[:200],
                 })
 
     # 如果有失败但也有成功，记录警告

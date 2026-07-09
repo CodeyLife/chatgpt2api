@@ -49,18 +49,18 @@ def _parse_bool(value: object) -> bool | None:
     raise HTTPException(status_code=400, detail={"error": "stream must be a boolean"})
 
 
-def _parse_count(value: object) -> int:
-    """解析生成数量：保持图片接口的 1 到 4 限制。"""
+def _parse_count(value: object, max_count: int = 4) -> int:
+    """解析生成数量：默认保持图片兼容接口的 1 到 4 限制。"""
     try:
         count = int(value or 1)
     except (TypeError, ValueError) as exc:
         raise HTTPException(status_code=400, detail={"error": "n must be an integer"}) from exc
-    if count < 1 or count > 4:
-        raise HTTPException(status_code=400, detail={"error": "n must be between 1 and 4"})
+    if count < 1 or count > max_count:
+        raise HTTPException(status_code=400, detail={"error": f"n must be between 1 and {max_count}"})
     return count
 
 
-def _payload_from_fields(fields: dict[str, Any]) -> dict[str, Any]:
+def _payload_from_fields(fields: dict[str, Any], max_n: int = 4) -> dict[str, Any]:
     """构造图片编辑载荷：从表单或 JSON 字段提取通用参数。"""
     prompt = _clean(fields.get("prompt"))
     if not prompt:
@@ -68,7 +68,7 @@ def _payload_from_fields(fields: dict[str, Any]) -> dict[str, Any]:
     payload = {
         "prompt": prompt,
         "model": _clean(fields.get("model"), "gpt-image-2"),
-        "n": _parse_count(fields.get("n")),
+        "n": _parse_count(fields.get("n"), max_n),
         "size": _clean(fields.get("size")) or None,
         "quality": _clean(fields.get("quality"), "auto"),
         "response_format": _clean(fields.get("response_format"), "b64_json"),
@@ -166,7 +166,10 @@ def _json_mask_sources(body: dict[str, Any]) -> list[ImageSource]:
     return []
 
 
-async def parse_image_edit_request(request: Request) -> tuple[dict[str, Any], list[ImageSource], list[ImageSource]]:
+async def parse_image_edit_request(
+    request: Request,
+    max_n: int = 4,
+) -> tuple[dict[str, Any], list[ImageSource], list[ImageSource]]:
     """解析图片编辑请求：同时支持 multipart 上传和官方 JSON 图片 URL。
     
     返回 (payload, image_sources, mask_sources)
@@ -179,7 +182,7 @@ async def parse_image_edit_request(request: Request) -> tuple[dict[str, Any], li
             raise HTTPException(status_code=400, detail={"error": "invalid JSON body"}) from exc
         if not isinstance(body, dict):
             raise HTTPException(status_code=400, detail={"error": "JSON body must be an object"})
-        return _payload_from_fields(body), _json_image_sources(body), _json_mask_sources(body)
+        return _payload_from_fields(body, max_n), _json_image_sources(body), _json_mask_sources(body)
 
     form = await request.form()
     fields: dict[str, Any] = {}
@@ -194,7 +197,7 @@ async def parse_image_edit_request(request: Request) -> tuple[dict[str, Any], li
             sources.extend(_sources_from_value(value))
         elif key in MASK_REFERENCE_FIELDS:
             mask_sources.extend(_sources_from_value(value))
-    return _payload_from_fields(fields), sources, mask_sources
+    return _payload_from_fields(fields, max_n), sources, mask_sources
 
 
 def _extension_from_mime(mime_type: str) -> str:

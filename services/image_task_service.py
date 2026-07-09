@@ -12,6 +12,8 @@ from services.config import DATA_DIR, config
 from services.content_filter import request_text
 from services.log_service import LOG_TYPE_CALL, log_service
 from services.protocol import openai_v1_image_edit, openai_v1_image_generations
+from services.protocol.conversation import count_text_tokens
+from utils.image_tokens import count_image_inputs_tokens, count_image_output_items_tokens, image_usage
 
 TASK_STATUS_QUEUED = "queued"
 TASK_STATUS_RUNNING = "running"
@@ -61,6 +63,63 @@ def _collect_image_urls(data: list[Any]) -> list[str]:
     return urls
 
 
+def _indexed_data_items(data: object, index: int) -> list[dict[str, Any]]:
+    if not isinstance(data, list):
+        return []
+    items: list[dict[str, Any]] = []
+    for offset, item in enumerate(data):
+        if isinstance(item, dict):
+            next_item = dict(item)
+            next_item.setdefault("index", index + offset)
+            items.append(next_item)
+    return items
+
+
+def _failed_indices(expected_count: int, data: list[Any]) -> list[int]:
+    completed: set[int] = set()
+    for item in data:
+        if not isinstance(item, dict):
+            continue
+        index = _safe_index(item.get("index"))
+        if index > 0:
+            completed.add(index)
+    return [index for index in range(1, expected_count + 1) if index not in completed]
+
+
+def _completed_count(data: list[Any]) -> int:
+    return len({
+        index
+        for item in data
+        if isinstance(item, dict)
+        for index in [_safe_index(item.get("index"))]
+        if index > 0
+    })
+
+
+def _safe_index(value: object) -> int:
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _task_image_usage(
+    payload: dict[str, Any],
+    mode: str,
+    model: str,
+    image_items: list[dict[str, Any]],
+) -> dict[str, Any]:
+    return image_usage(
+        input_text_tokens=count_text_tokens(str(payload.get("prompt") or ""), model),
+        input_image_tokens=count_image_inputs_tokens(payload.get("images"), model) if mode == "edit" else 0,
+        output_tokens=count_image_output_items_tokens(
+            image_items,
+            payload.get("size"),
+            str(payload.get("quality") or "auto"),
+        ),
+    )
+
+
 def _public_task(task: dict[str, Any]) -> dict[str, Any]:
     item = {
         "id": task.get("id"),
@@ -84,6 +143,9 @@ def _public_task(task: dict[str, Any]) -> dict[str, Any]:
         item["progress"] = task.get("progress")
     if task.get("duration_ms") is not None:
         item["duration_ms"] = task.get("duration_ms")
+    for key in ("expected_count", "completed_count", "failed_indices"):
+        if task.get(key) is not None:
+            item[key] = task.get(key)
     if task.get("status") in (TASK_STATUS_RUNNING, TASK_STATUS_QUEUED):
         if task.get("status") == TASK_STATUS_RUNNING:
             # RUNNING 状态仅在 started_ts 被设置后（image_stream_resolve_start）才计时
@@ -250,23 +312,69 @@ class ImageTaskService:
         model: str,
     ) -> None:
         started = time.time()
-        self._update_task(key, status=TASK_STATUS_RUNNING, error="")
+        expected_count = max(1, int(payload.get("n") or 1))
+        self._update_task(
+            key,
+            status=TASK_STATUS_RUNNING,
+            error="",
+            data=[],
+            expected_count=expected_count,
+            completed_count=0,
+            failed_indices=[],
+        )
         # 创建进度回调，每个步骤完成后更新任务状态
         def progress_callback(step: str) -> None:
             if step == "image_stream_resolve_start":
                 self._update_task(key, started_ts=time.time())
             self._update_task(key, progress=step)
         # 将进度回调添加到 payload 中（handler 会提取并传递给 ConversationRequest）
-        payload_with_progress = {**payload, "progress_callback": progress_callback}
+        payload_with_progress = {**payload, "progress_callback": progress_callback, "stream": True}
+        stream_message = ""
         try:
             handler = self.edit_handler if mode == "edit" else self.generation_handler
             result = handler(payload_with_progress)
-            if not isinstance(result, dict):
-                raise RuntimeError("image task returned streaming result unexpectedly")
-            data = result.get("data")
-            account_email = _clean(result.get("_account_email") or result.get("account_email"))
-            if not isinstance(data, list) or not data:
-                upstream = _clean(result.get("message"))
+            if isinstance(result, dict):
+                data = result.get("data")
+                account_email = _clean(result.get("_account_email") or result.get("account_email"))
+                image_items = _indexed_data_items(data, 1)
+            else:
+                account_email = ""
+                image_items: list[dict[str, Any]] = []
+                seen_indices: set[int] = set()
+                for chunk in result:
+                    if not isinstance(chunk, dict):
+                        continue
+                    if chunk.get("_account_email") and not account_email:
+                        account_email = _clean(chunk.get("_account_email"))
+                    if chunk.get("_conversation_id"):
+                        self._update_task(key, conversation_id=_clean(chunk.get("_conversation_id")))
+                    chunk_object = chunk.get("object")
+                    if chunk_object == "image.generation.message":
+                        message = _clean(chunk.get("message") or chunk.get("progress_text") or chunk.get("text"))
+                        if message:
+                            stream_message = message
+                        continue
+                    if chunk_object == "image.generation.result":
+                        try:
+                            index = int(chunk.get("index") or len(seen_indices) + 1)
+                        except (TypeError, ValueError):
+                            index = len(seen_indices) + 1
+                        if index in seen_indices:
+                            continue
+                        items = _indexed_data_items(chunk.get("data"), index)
+                        if not items:
+                            continue
+                        seen_indices.add(index)
+                        image_items.extend(items)
+                        self._update_task(
+                            key,
+                            data=image_items,
+                            completed_count=len(seen_indices),
+                            failed_indices=_failed_indices(expected_count, image_items),
+                        )
+
+            if not image_items:
+                upstream = _clean(result.get("message")) if isinstance(result, dict) else stream_message
                 if upstream:
                     message = upstream
                 else:
@@ -275,9 +383,22 @@ class ImageTaskService:
                 if account_email:
                     setattr(error, "account_email", account_email)
                 raise error
-            usage = result.get("usage")
+            usage = None
+            if isinstance(result, dict):
+                usage = result.get("usage")
+            if usage is None:
+                usage = _task_image_usage(payload, mode, model, image_items)
             duration_ms = int((time.time() - started) * 1000)
-            self._update_task(key, status=TASK_STATUS_SUCCESS, data=data, usage=usage, error="", duration_ms=duration_ms)
+            self._update_task(
+                key,
+                status=TASK_STATUS_SUCCESS,
+                data=image_items,
+                usage=usage,
+                error="",
+                duration_ms=duration_ms,
+                completed_count=_completed_count(image_items),
+                failed_indices=_failed_indices(expected_count, image_items),
+            )
             self._log_call(
                 identity,
                 mode,
@@ -285,7 +406,7 @@ class ImageTaskService:
                 started,
                 "调用完成",
                 request_preview=request_text(payload.get("prompt")),
-                urls=_collect_image_urls(data),
+                urls=_collect_image_urls(image_items),
                 account_email=account_email,
             )
         except Exception as exc:
@@ -293,9 +414,43 @@ class ImageTaskService:
             account_email = _clean(getattr(exc, "account_email", ""))
             conversation_id = _clean(getattr(exc, "conversation_id", ""))
             duration_ms = int((time.time() - started) * 1000)
-            self._update_task(key, status=TASK_STATUS_ERROR, error=error_message, data=[],
-                              duration_ms=duration_ms,
-                              **({"conversation_id": conversation_id} if conversation_id else {}))
+            with self._lock:
+                task = self._tasks.get(key) or {}
+                partial_data = task.get("data") if isinstance(task.get("data"), list) else []
+            if partial_data:
+                self._update_task(
+                    key,
+                    status=TASK_STATUS_SUCCESS,
+                    error=error_message,
+                    duration_ms=duration_ms,
+                    completed_count=_completed_count(partial_data),
+                    failed_indices=_failed_indices(expected_count, partial_data),
+                    **({"conversation_id": conversation_id} if conversation_id else {}),
+                )
+                self._log_call(
+                    identity,
+                    mode,
+                    model,
+                    started,
+                    "调用完成（部分失败）",
+                    request_preview=request_text(payload.get("prompt")),
+                    status="success",
+                    error=error_message,
+                    urls=_collect_image_urls(partial_data),
+                    account_email=account_email,
+                )
+                return
+            else:
+                self._update_task(
+                    key,
+                    status=TASK_STATUS_ERROR,
+                    error=error_message,
+                    data=[],
+                    duration_ms=duration_ms,
+                    completed_count=0,
+                    failed_indices=list(range(1, expected_count + 1)),
+                    **({"conversation_id": conversation_id} if conversation_id else {}),
+                )
             self._log_call(
                 identity,
                 mode,

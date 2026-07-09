@@ -431,6 +431,13 @@ class ConfigStore:
         return bool(value)
 
     @property
+    def image_parallel_generation_max_workers(self) -> int:
+        try:
+            return max(1, int(self.data.get("image_parallel_generation_max_workers", 8)))
+        except (TypeError, ValueError):
+            return 8
+
+    @property
     def image_settle_enabled(self) -> bool:
         """图片二次确认机制：找到 file_ids 后等待一段时间再次确认。"""
         value = self.data.get("image_settle_enabled", True)
@@ -587,6 +594,7 @@ class ConfigStore:
         data["image_timeout_retry_secs"] = self.image_timeout_retry_secs
         data["image_account_concurrency"] = self.image_account_concurrency
         data["image_parallel_generation"] = self.image_parallel_generation
+        data["image_parallel_generation_max_workers"] = self.image_parallel_generation_max_workers
         data["image_remove_conversation_after_result"] = self.image_remove_conversation_after_result
         data["image_convert_result_to_jpg"] = self.image_convert_result_to_jpg
         data["auto_remove_invalid_accounts"] = self.auto_remove_invalid_accounts

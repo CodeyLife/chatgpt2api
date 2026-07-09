@@ -17,8 +17,7 @@ class ImageGenerationTaskRequest(BaseModel):
     model: str = "gpt-image-2"
     size: str | None = None
     quality: str = "auto"
-    # TODO P3: 上限 4 对齐 _parse_count（上游单次生成能力边界），后续若上游放宽可同步上调
-    n: int = Field(default=1, ge=1, le=4)
+    n: int = Field(default=1, ge=1, le=24)
 
 
 class ResumePollRequest(BaseModel):
@@ -80,7 +79,7 @@ def create_router() -> APIRouter:
         authorization: str | None = Header(default=None),
     ):
         identity = require_identity(authorization)
-        payload, image_sources, mask_sources = await parse_image_edit_request(request)
+        payload, image_sources, mask_sources = await parse_image_edit_request(request, max_n=24)
         client_task_id = str(payload.get("client_task_id") or "").strip()
         if not client_task_id:
             raise HTTPException(status_code=400, detail={"error": "client_task_id is required"})
