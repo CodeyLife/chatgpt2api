@@ -369,6 +369,7 @@ class ImageOutput:
     data: list[dict[str, Any]] = field(default_factory=list)
     account_email: str = ""
     conversation_id: str = ""
+    error: str = ""
 
     def to_chunk(self) -> dict[str, Any]:
         chunk: dict[str, Any] = {
@@ -396,6 +397,13 @@ class ImageOutput:
             chunk.update({
                 "object": "image.generation.result",
                 "data": self.data,
+            })
+            chunk.pop("progress_text", None)
+            chunk.pop("upstream_event_type", None)
+        elif self.kind == "failure":
+            chunk.update({
+                "object": "image.generation.failure",
+                "error": self.error,
             })
             chunk.pop("progress_text", None)
             chunk.pop("upstream_event_type", None)
@@ -1663,15 +1671,24 @@ def stream_image_outputs_with_pool(request: ConversationRequest) -> Iterator[Ima
                     "error": str(exc)[:300],
                 })
 
-    # 如果有失败但也有成功，记录警告
+    # 如果有失败但也有成功，向调用方透传失败明细，并记录警告
     if emitted:
         for index in range(1, request.n + 1):
             if index in errors:
+                exc = errors[index]
                 logger.warning({
                     "event": "image_parallel_partial_failure",
                     "failed_index": index,
-                    "error": str(errors[index])[:200],
+                    "error": str(exc)[:200],
                 })
+                yield ImageOutput(
+                    kind="failure",
+                    model=request.model,
+                    index=index,
+                    total=request.n,
+                    error=str(exc),
+                    account_email=getattr(exc, "account_email", ""),
+                )
 
     if not emitted:
         if not last_error:
@@ -1700,6 +1717,9 @@ def collect_image_outputs(outputs: Iterable[ImageOutput]) -> dict[str, Any]:
             message = output.text
         elif output.kind == "result":
             data.extend(output.data)
+        elif output.kind == "failure":
+            # 失败明细仅用于流式任务模式日志透传，不参与 direct 模式结果聚合
+            pass
 
     result: dict[str, Any] = {"created": created or int(time.time()), "data": data}
     if not data:

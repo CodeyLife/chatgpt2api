@@ -330,6 +330,7 @@ class ImageTaskService:
         # 将进度回调添加到 payload 中（handler 会提取并传递给 ConversationRequest）
         payload_with_progress = {**payload, "progress_callback": progress_callback, "stream": True}
         stream_message = ""
+        failed_items: list[dict[str, Any]] = []
         try:
             handler = self.edit_handler if mode == "edit" else self.generation_handler
             result = handler(payload_with_progress)
@@ -349,6 +350,17 @@ class ImageTaskService:
                     if chunk.get("_conversation_id"):
                         self._update_task(key, conversation_id=_clean(chunk.get("_conversation_id")))
                     chunk_object = chunk.get("object")
+                    if chunk_object == "image.generation.failure":
+                        try:
+                            f_index = int(chunk.get("index") or 0)
+                        except (TypeError, ValueError):
+                            f_index = 0
+                        failed_items.append({
+                            "index": f_index,
+                            "error": _clean(chunk.get("error")),
+                            "account_email": _clean(chunk.get("_account_email")),
+                        })
+                        continue
                     if chunk_object == "image.generation.message":
                         message = _clean(chunk.get("message") or chunk.get("progress_text") or chunk.get("text"))
                         if message:
@@ -389,26 +401,71 @@ class ImageTaskService:
             if usage is None:
                 usage = _task_image_usage(payload, mode, model, image_items)
             duration_ms = int((time.time() - started) * 1000)
-            self._update_task(
-                key,
-                status=TASK_STATUS_SUCCESS,
-                data=image_items,
-                usage=usage,
-                error="",
-                duration_ms=duration_ms,
-                completed_count=_completed_count(image_items),
-                failed_indices=_failed_indices(expected_count, image_items),
-            )
-            self._log_call(
-                identity,
-                mode,
-                model,
-                started,
-                "调用完成",
-                request_preview=request_text(payload.get("prompt")),
-                urls=_collect_image_urls(image_items),
-                account_email=account_email,
-            )
+            if failed_items:
+                # 部分失败：有成功图，同时透传到失败明细
+                failed_idx_list = [item["index"] for item in failed_items if item["index"]]
+                all_failed_indices = sorted(set(failed_idx_list) | set(_failed_indices(expected_count, image_items)))
+                summary_error = "部分图片生成失败：" + "; ".join(
+                    f"第{item['index']}张({item['error'][:80]})" for item in failed_items if item["index"]
+                ) if failed_idx_list else "部分图片生成失败"
+                self._update_task(
+                    key,
+                    status=TASK_STATUS_SUCCESS,
+                    data=image_items,
+                    usage=usage,
+                    error=summary_error,
+                    duration_ms=duration_ms,
+                    completed_count=_completed_count(image_items),
+                    failed_indices=all_failed_indices,
+                )
+                self._log_call(
+                    identity,
+                    mode,
+                    model,
+                    started,
+                    "调用完成（部分失败）",
+                    request_preview=request_text(payload.get("prompt")),
+                    status="success",
+                    error=summary_error,
+                    urls=_collect_image_urls(image_items),
+                    account_email=account_email,
+                )
+                # 为每张失败图各记一条独立日志
+                for item in failed_items:
+                    self._log_call(
+                        identity,
+                        mode,
+                        model,
+                        started,
+                        f"第{item['index']}/{expected_count}张失败",
+                        request_preview=request_text(payload.get("prompt")),
+                        status="failed",
+                        error=item["error"] or "image generation failed",
+                        account_email=item["account_email"] or account_email,
+                        image_index=item["index"],
+                        image_total=expected_count,
+                    )
+            else:
+                self._update_task(
+                    key,
+                    status=TASK_STATUS_SUCCESS,
+                    data=image_items,
+                    usage=usage,
+                    error="",
+                    duration_ms=duration_ms,
+                    completed_count=_completed_count(image_items),
+                    failed_indices=_failed_indices(expected_count, image_items),
+                )
+                self._log_call(
+                    identity,
+                    mode,
+                    model,
+                    started,
+                    "调用完成",
+                    request_preview=request_text(payload.get("prompt")),
+                    urls=_collect_image_urls(image_items),
+                    account_email=account_email,
+                )
         except Exception as exc:
             error_message = str(exc) or "image task failed"
             account_email = _clean(getattr(exc, "account_email", ""))
@@ -439,6 +496,21 @@ class ImageTaskService:
                     urls=_collect_image_urls(partial_data),
                     account_email=account_email,
                 )
+                # 异常路径下若已收集到失败明细，同样为每张失败图各记一条独立日志
+                for item in failed_items:
+                    self._log_call(
+                        identity,
+                        mode,
+                        model,
+                        started,
+                        f"第{item['index']}/{expected_count}张失败",
+                        request_preview=request_text(payload.get("prompt")),
+                        status="failed",
+                        error=item["error"] or error_message,
+                        account_email=item["account_email"] or account_email,
+                        image_index=item["index"],
+                        image_total=expected_count,
+                    )
                 return
             else:
                 self._update_task(
@@ -476,6 +548,8 @@ class ImageTaskService:
         error: str = "",
         urls: list[str] | None = None,
         account_email: str = "",
+        image_index: int | None = None,
+        image_total: int | None = None,
     ) -> None:
         endpoint = "/v1/images/edits" if mode == "edit" else "/v1/images/generations"
         summary_prefix = "图生图" if mode == "edit" else "文生图"
@@ -498,6 +572,10 @@ class ImageTaskService:
             detail["account_email"] = account_email
         if urls:
             detail["urls"] = list(dict.fromkeys(urls))
+        if image_index is not None:
+            detail["image_index"] = image_index
+        if image_total is not None:
+            detail["image_total"] = image_total
         try:
             log_service.add(LOG_TYPE_CALL, f"{summary_prefix}{suffix}", detail)
         except Exception:
