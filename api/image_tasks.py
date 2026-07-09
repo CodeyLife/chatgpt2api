@@ -17,6 +17,8 @@ class ImageGenerationTaskRequest(BaseModel):
     model: str = "gpt-image-2"
     size: str | None = None
     quality: str = "auto"
+    # TODO P3: 上限 4 对齐 _parse_count（上游单次生成能力边界），后续若上游放宽可同步上调
+    n: int = Field(default=1, ge=1, le=4)
 
 
 class ResumePollRequest(BaseModel):
@@ -66,6 +68,7 @@ def create_router() -> APIRouter:
                 size=body.size,
                 quality=body.quality,
                 base_url=resolve_image_base_url(request),
+                n=body.n,
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail={"error": str(exc)}) from exc
@@ -98,6 +101,7 @@ def create_router() -> APIRouter:
                 base_url=resolve_image_base_url(request),
                 images=images,
                 masks=masks,
+                n=int(payload.get("n") or 1),
             )
         except ValueError as exc:
             raise HTTPException(status_code=400, detail={"error": str(exc)}) from exc
