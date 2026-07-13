@@ -191,6 +191,7 @@ class OpenAIBackendAPI:
         self.pow_script_sources: list[str] = []
         self.pow_data_build = ""
         self.progress_callback: Callable[[str], None] | None = None
+        self._last_uploaded_references: list[Dict[str, Any]] | None = None
         self.session = requests.Session(**proxy_settings.build_session_kwargs(
             account=self.account,
             impersonate=self.fp["impersonate"],
@@ -2168,7 +2169,7 @@ class OpenAIBackendAPI:
             (tuple(file_ids), tuple(sediment_ids)) if has_initial_ids else None
         )
         network_error_count = 0
-        MAX_NETWORK_ERRORS = 2  # HTTP/2 流错误等致命网络错误最多重试 2 次
+        last_network_error = ""
         logger.info({
             "event": "image_poll_start",
             "conversation_id": conversation_id,
@@ -2252,35 +2253,26 @@ class OpenAIBackendAPI:
                     break
                 raise
             except requests.exceptions.RequestException as exc:
-                # HTTP/2 流错误（curl 92/56/95）和 TLS 连接错误：快速重试 2 次后立即抛出，不耗尽 timeout_secs
                 error_str = str(exc)
                 if is_image_fatal_network_error(error_str):
                     network_error_count += 1
-                    if network_error_count <= MAX_NETWORK_ERRORS:
-                        # 短退避：2s, 4s（不使用 _retry_sleep 的指数退避，避免拖长）
-                        short_backoff = min(2.0 * network_error_count, max(0.0, _remaining()))
-                        logger.warning({
-                            "event": "image_poll_network_error_fast_retry",
-                            "conversation_id": conversation_id,
-                            "attempt": attempt,
-                            "network_error_count": network_error_count,
-                            "sleep_secs": round(short_backoff, 2),
-                            "error": error_str[:200],
-                        })
-                        if short_backoff > 0:
-                            time.sleep(short_backoff)
-                            continue
-                    # 重试次数用尽，立即抛出（不耗尽 timeout_secs）
+                    last_network_error = error_str
+                    # Polling reads an already-started conversation. A transient HTTP/2 reset
+                    # should not fail the background image task early; keep retrying inside
+                    # the caller-provided timeout budget.
+                    short_backoff = min(2.0 * min(network_error_count, 5), max(0.0, _remaining()))
                     logger.warning({
-                        "event": "image_poll_network_error_exhausted",
+                        "event": "image_poll_network_error_fast_retry",
                         "conversation_id": conversation_id,
                         "attempt": attempt,
                         "network_error_count": network_error_count,
+                        "sleep_secs": round(short_backoff, 2),
                         "error": error_str[:200],
                     })
-                    raise ImagePollTimeoutError(
-                        f"网络错误重试 {MAX_NETWORK_ERRORS} 次后仍失败: {error_str[:200]}"
-                    )
+                    if short_backoff > 0:
+                        time.sleep(short_backoff)
+                        continue
+                    break
                 # 其他网络错误：保持原有 _retry_sleep 逻辑
                 if _retry_sleep("network", None, str(exc), None):
                     continue
@@ -2349,6 +2341,7 @@ class OpenAIBackendAPI:
             # attempts_made == 0 means the initial_wait consumed the entire budget — no HTTP attempted.
             "initial_wait_exhausted_budget": attempt == 0,
             "last_task_error": last_task_error if last_task_error else None,
+            "last_network_error": last_network_error[:200] if last_network_error else None,
         })
         exc = ImagePollTimeoutError(
             f"ChatGPT 生图超时（已等待 {timeout_secs} 秒）。"
@@ -2357,6 +2350,8 @@ class OpenAIBackendAPI:
         )
         if last_task_error:
             setattr(exc, "task_error", last_task_error)
+        if last_network_error:
+            setattr(exc, "network_error", last_network_error)
         setattr(exc, "conversation_id", conversation_id or "")
         raise exc
 
@@ -2611,10 +2606,14 @@ class OpenAIBackendAPI:
             system_hints: Optional[list[str]] = None,
             thinking_effort: str = "",
             timeout_secs: float | None = None,
+            preloaded_references: Optional[list[Dict[str, Any]]] = None,
     ) -> Iterator[str]:
         system_hints = system_hints or []
         if "picture_v2" in system_hints:
-            yield from self._stream_picture_conversation(prompt, model, images or [], timeout_secs=timeout_secs or 300.0)
+            yield from self._stream_picture_conversation(
+                prompt, model, images or [], timeout_secs=timeout_secs or 300.0,
+                preloaded_references=preloaded_references,
+            )
             return
 
         normalized = messages or [{"role": "user", "content": prompt}]
@@ -2631,7 +2630,7 @@ class OpenAIBackendAPI:
         )
         ensure_ok(response, path)
         try:
-            yield from iter_sse_payloads(response, stream_timeout_secs=timeout_secs or 300)
+            yield from iter_sse_payloads(response, stream_timeout_secs=timeout_secs or 300, session=self.session)
         finally:
             response.close()
 
@@ -2649,11 +2648,16 @@ class OpenAIBackendAPI:
             model: str,
             images: list[str],
             timeout_secs: float = 300.0,
+            preloaded_references: Optional[list[Dict[str, Any]]] = None,
     ) -> Iterator[str]:
         if not self.access_token:
             raise RuntimeError("access_token is required for image endpoints")
-        self._report_progress("uploading")
-        references = [self._upload_image(image, f"image_{idx}.png") for idx, image in enumerate(images, start=1)]
+        if preloaded_references is not None:
+            references = preloaded_references
+        else:
+            self._report_progress("uploading")
+            references = [self._upload_image(image, f"image_{idx}.png") for idx, image in enumerate(images, start=1)]
+            self._last_uploaded_references = references
         self._report_progress("bootstrapping")
         self._bootstrap()
         self._report_progress("getting_token")
@@ -2664,7 +2668,7 @@ class OpenAIBackendAPI:
         response = self._start_image_generation(prompt, requirements, conduit_token, model, references, timeout_secs)
         self._report_progress("generating")
         try:
-            yield from iter_sse_payloads(response, stream_timeout_secs=timeout_secs)
+            yield from iter_sse_payloads(response, stream_timeout_secs=timeout_secs, session=self.session)
         finally:
             response.close()
 

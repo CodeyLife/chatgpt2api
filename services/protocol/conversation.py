@@ -112,9 +112,9 @@ def is_connection_timeout_error(message: str) -> bool:
 
 
 def is_http2_stream_error(message: str) -> bool:
-    """检测 HTTP/2 流错误和网络层致命错误。
+    """检测 HTTP/2 流错误和网络层临时断流。
     这类错误（如 curl 92/56/95）表示上游流被重置或连接异常断开，
-    不应长时间重试，应快速失败后由外层决定是否换账号。"""
+    在总耗时上限内可短退避重试。"""
     return is_image_fatal_network_error(message)
 
 
@@ -703,6 +703,7 @@ def conversation_events(
     quality: str = "auto",
     thinking_effort: str = "",
     deadline: float | None = None,
+    preloaded_references: list[dict[str, Any]] | None = None,
 ) -> Iterator[dict[str, Any]]:
     _ensure_image_deadline(deadline)
     normalized = normalize_messages(messages or ([{"role": "user", "content": prompt}] if prompt else []))
@@ -718,6 +719,7 @@ def conversation_events(
         system_hints=["picture_v2"] if image_model else None,
         thinking_effort=thinking_effort if not image_model else "",
         timeout_secs=_deadline_limited_timeout(config.image_total_timeout_secs, deadline) if image_model else None,
+        preloaded_references=preloaded_references if image_model else None,
     )
     yield from iter_conversation_payloads(payloads, history_text, history_messages)
 
@@ -897,6 +899,7 @@ def stream_image_outputs(
         index: int = 1,
         total: int = 1,
         deadline: float | None = None,
+        preloaded_references: list[dict[str, Any]] | None = None,
 ) -> Iterator[ImageOutput]:
     last: dict[str, Any] = {}
     for event in conversation_events(
@@ -907,6 +910,7 @@ def stream_image_outputs(
             size=request.size,
             quality=request.quality,
             deadline=deadline,
+            preloaded_references=preloaded_references,
     ):
         _ensure_image_deadline(deadline)
         last = event
@@ -1332,6 +1336,7 @@ def stream_codex_image_outputs(
         index: int = 1,
         total: int = 1,
         deadline: float | None = None,
+        preloaded_references: list[dict[str, Any]] | None = None,
 ) -> Iterator[ImageOutput]:
     _ensure_image_deadline(deadline)
     images = _codex_response_images(list(backend.iter_codex_image_response_events(
@@ -1368,20 +1373,22 @@ def _generate_single_image(
     """
     # 模型返回文本而非图片的最大重试次数
     MAX_TEXT_REPLY_RETRIES = 3
-    # TLS 连接错误最大重试次数
-    MAX_TLS_RETRIES = 3
+    # 上游流/网络错误最大快速重试次数
+    MAX_STREAM_NETWORK_RETRIES = 5
     # 连接超时错误最大重试次数（同账号短等待重试）
     MAX_CONN_TIMEOUT_RETRIES = 3
     # 轮询超时错误最大重试次数（换账号重试）
     MAX_POLL_TIMEOUT_RETRIES = 4
 
     text_reply_retry_count = 0
-    tls_retry_count = 0
+    stream_network_retry_count = 0
     conn_timeout_retry_count = 0
     poll_timeout_retry_count = 0
     account_email = ""
     # 全局总耗时上限：超过即失败，不再重试
     total_deadline = time.time() + config.image_total_timeout_secs
+    # token 级别的参考图上传缓存：同账号重试时复用已上传的 references，避免重复上传
+    token_references_cache: dict[str, list[dict[str, Any]]] = {}
 
     while True:
         # 全局 deadline 检查：超过总耗时上限立即失败
@@ -1413,13 +1420,16 @@ def _generate_single_image(
             "index": index,
         })
         backend = None
+        preloaded_refs = None
         try:
             backend = OpenAIBackendAPI(access_token=token)
             if request.progress_callback:
                 backend.progress_callback = request.progress_callback
             stream_fn = stream_codex_image_outputs if is_codex_image_model(request.model) else stream_image_outputs
+            # 同账号重试时复用已上传的参考图 references（仅非 codex 模型路径）
+            preloaded_refs = None if is_codex_image_model(request.model) else token_references_cache.get(token)
             outputs: list[ImageOutput] = []
-            for output in stream_fn(backend, request, index, total, total_deadline):
+            for output in stream_fn(backend, request, index, total, total_deadline, preloaded_references=preloaded_refs):
                 if account_email and not output.account_email:
                     output.account_email = account_email
                 if output.kind == "message" and request.message_as_error:
@@ -1567,21 +1577,23 @@ def _generate_single_image(
                     continue
                 account_service.remove_invalid_token(token, "image_stream")
                 continue
-            # TLS/SSL 连接错误：自动重试
-            if not emitted_for_token and is_tls_connection_error(last_error):
-                tls_retry_count += 1
-                if tls_retry_count <= MAX_TLS_RETRIES:
+            # HTTP/2/TLS/连接重置等上游临时断流：自动短退避重试。
+            if not emitted_for_token and is_http2_stream_error(last_error):
+                stream_network_retry_count += 1
+                if stream_network_retry_count <= MAX_STREAM_NETWORK_RETRIES:
                     if time.time() >= total_deadline:
                         raise _image_total_timeout_error(total_deadline, account_email) from exc
+                    wait_secs = min(2.0 * stream_network_retry_count, 10.0)
                     logger.warning({
-                        "event": "image_stream_tls_retry",
+                        "event": "image_stream_network_retry",
                         "request_token": token,
                         "account_email": account_email,
-                        "retry_count": tls_retry_count,
+                        "retry_count": stream_network_retry_count,
                         "index": index,
+                        "wait_secs": wait_secs,
                         "error": last_error[:200],
                     })
-                    _deadline_sleep(min(2.0 * tls_retry_count, 10.0), total_deadline)
+                    _deadline_sleep(wait_secs, total_deadline)
                     continue
             # 连接超时错误（curl 28）：同账号短等待重试，不切换账号
             if not emitted_for_token and is_connection_timeout_error(last_error):
@@ -1605,6 +1617,11 @@ def _generate_single_image(
                 raise _image_total_timeout_error(total_deadline, account_email) from exc
             raise ImageGenerationError(image_stream_error_message(last_error), account_email=account_email, conversation_id="") from exc
         finally:
+            # 缓存本次上传的 references 供同账号重试复用（覆盖成功和异常两种情况）
+            if preloaded_refs is None and backend is not None:
+                uploaded = getattr(backend, "_last_uploaded_references", None)
+                if uploaded:
+                    token_references_cache[token] = uploaded
             if backend is not None:
                 backend.close()
 

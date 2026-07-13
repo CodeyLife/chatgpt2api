@@ -233,12 +233,15 @@ def anthropic_sse_stream(items) -> Iterator[str]:
 def iter_sse_payloads(
     response: requests.Response,
     stream_timeout_secs: float | None = None,
+    session=None,
 ) -> Iterator[str]:
     """逐行读取 SSE 流。
 
     stream_timeout_secs: 单次流式读取的总耗时上限。curl_cffi 的 timeout 参数在
     stream=True 时不限制 iter_lines() 的阻塞时长，需要通过看门狗 Timer 强制
     关闭 response 来中断阻塞。
+    session: 可选的 curl_cffi Session，看门狗触发时额外关闭 session 以强制
+    释放底层连接池，避免 iter_lines() 在 C 层阻塞无法被 response.close() 中断。
     """
     import threading
 
@@ -247,16 +250,27 @@ def iter_sse_payloads(
     if stream_timeout_secs and stream_timeout_secs > 0:
         def _force_close() -> None:
             timed_out.set()
+            logger.warning({
+                "event": "sse_watchdog_triggered",
+                "stream_timeout_secs": stream_timeout_secs,
+            })
             try:
                 response.close()
             except Exception:
                 pass
+            if session is not None:
+                try:
+                    session.close()
+                except Exception:
+                    pass
         watchdog = threading.Timer(stream_timeout_secs, _force_close)
         watchdog.daemon = True
         watchdog.start()
 
     try:
         for raw_line in response.iter_lines():
+            if timed_out.is_set():
+                break
             if not raw_line:
                 continue
             line = raw_line.decode("utf-8", errors="ignore") if isinstance(raw_line, bytes) else str(raw_line)

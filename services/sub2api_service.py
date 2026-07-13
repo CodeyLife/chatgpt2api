@@ -244,6 +244,37 @@ def _extract_access_token(credentials: object) -> str:
     return ""
 
 
+def _account_import_payload(account: dict) -> dict | None:
+    """Build the complete local account payload from a Sub2API export record."""
+    credentials = account.get("credentials") if isinstance(account.get("credentials"), dict) else {}
+    access_token = _extract_access_token(credentials)
+    if not access_token:
+        return None
+
+    payload: dict[str, str] = {
+        "access_token": access_token,
+        "source_type": "codex",
+    }
+    aliases = {
+        "refresh_token": ("refresh_token", "refreshToken"),
+        "id_token": ("id_token", "idToken"),
+        "email": ("email",),
+        "account_id": ("account_id", "chatgpt_account_id"),
+        "device_id": ("device_id", "deviceId"),
+        "fingerprint_profile": ("fingerprint_profile", "fingerprintProfile"),
+    }
+    for target, keys in aliases.items():
+        value = next((_clean(credentials.get(key)) for key in keys if _clean(credentials.get(key))), "")
+        if value:
+            payload[target] = value
+
+    if not payload.get("account_id"):
+        account_id = _clean(account.get("id"))
+        if account_id:
+            payload["account_id"] = account_id
+    return payload
+
+
 def _unwrap_envelope(payload: object) -> object:
     """Peel sub2api's `{code, message, data}` envelope, returning the inner `data` field
     when present. Also handles unwrapped responses from older/alt versions."""
@@ -385,8 +416,8 @@ def list_remote_groups(server: dict) -> list[dict]:
     return items
 
 
-def _fetch_access_tokens_for_accounts(server: dict, account_ids: list[str]) -> tuple[list[str], list[dict]]:
-    """Return exported access tokens and per-account errors from sub2api."""
+def _fetch_account_payloads_for_accounts(server: dict, account_ids: list[str]) -> tuple[list[dict], list[dict]]:
+    """Return complete account payloads and per-account errors from Sub2API."""
     base_url = _clean(server.get("base_url"))
     headers = _auth_headers(server)
     ids = [_clean(item) for item in account_ids if _clean(item)]
@@ -412,23 +443,23 @@ def _fetch_access_tokens_for_accounts(server: dict, account_ids: list[str]) -> t
     if not isinstance(accounts, list):
         raise RuntimeError("invalid export payload")
 
-    tokens: list[str] = []
+    account_payloads: list[dict] = []
     errors: list[dict] = []
     for account in accounts:
         if not isinstance(account, dict):
             continue
         credentials = account.get("credentials") if isinstance(account.get("credentials"), dict) else {}
-        token = _extract_access_token(credentials)
         account_id = _clean(account.get("id")) or _clean(credentials.get("chatgpt_account_id")) or _clean(account.get("name"))
-        if token:
-            tokens.append(token)
+        payload = _account_import_payload(account)
+        if payload is not None:
+            account_payloads.append(payload)
         else:
             errors.append({"name": account_id or _clean(account.get("name")) or "unknown", "error": "missing access_token"})
 
     if len(accounts) < len(ids):
         errors.append({"name": ",".join(ids), "error": f"exported {len(accounts)}/{len(ids)} accounts"})
 
-    return tokens, errors
+    return account_payloads, errors
 
 
 class Sub2APIImportService:
@@ -486,12 +517,12 @@ class Sub2APIImportService:
         self._update_job(server_id, status="running")
 
         try:
-            tokens, errors = _fetch_access_tokens_for_accounts(server, account_ids)
+            account_payloads, errors = _fetch_account_payloads_for_accounts(server, account_ids)
         except Exception as exc:
             message = str(exc) or "unknown error"
             for account_id in account_ids:
                 self._append_error(server_id, account_id, message)
-            tokens = []
+            account_payloads = []
         else:
             for error in errors:
                 self._append_error(server_id, _clean(error.get("name")), _clean(error.get("error")) or "unknown error")
@@ -503,7 +534,7 @@ class Sub2APIImportService:
             failed=len(current.get("errors") or []),
         )
 
-        if not tokens:
+        if not account_payloads:
             current = self._config.get_import_job(server_id) or {}
             self._update_job(
                 server_id,
@@ -513,8 +544,10 @@ class Sub2APIImportService:
             )
             return
 
-        add_result = account_service.add_accounts(tokens, source_type="codex")
-        refresh_result = account_service.refresh_accounts(tokens)
+        add_result = account_service.add_account_items(account_payloads)
+        refresh_result = account_service.refresh_accounts(
+            [str(payload["access_token"]) for payload in account_payloads]
+        )
         current = self._config.get_import_job(server_id) or {}
         self._update_job(
             server_id,

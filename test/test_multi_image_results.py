@@ -5,6 +5,8 @@ import threading
 import unittest
 from unittest import mock
 
+from curl_cffi import requests
+
 from services.config import config
 from services.openai_backend_api import OpenAIBackendAPI
 from services.protocol import conversation
@@ -134,6 +136,97 @@ class MultiImageResultTests(unittest.TestCase):
         self.assertEqual(file_ids, ["file-one", "file-two"])
         self.assertEqual(sediment_ids, ["sed-one"])
         self.assertEqual(backend.calls, 3)
+
+    def test_poll_keeps_retrying_transient_http2_stream_errors_within_timeout(self) -> None:
+        backend = FakeBackend([_conversation(["file-one"])])
+        errors_left = 3
+
+        def flaky_conversation(_conversation_id: str) -> dict:
+            nonlocal errors_left
+            if errors_left > 0:
+                errors_left -= 1
+                raise requests.exceptions.RequestException(
+                    "curl: (92) HTTP/2 stream 1 was not closed cleanly: INTERNAL_ERROR"
+                )
+            return _conversation(["file-one"])
+
+        backend._get_conversation = mock.Mock(side_effect=flaky_conversation)
+
+        with (
+            mock.patch.dict(config.data, {
+                "image_poll_initial_wait_secs": 0,
+                "image_poll_interval_secs": 0.5,
+                "image_check_before_hit_enabled": False,
+            }),
+            mock.patch("services.openai_backend_api.time.sleep", lambda _seconds: None),
+        ):
+            file_ids, sediment_ids = backend._poll_image_results("conv-1", timeout_secs=10)
+
+        self.assertEqual(file_ids, ["file-one"])
+        self.assertEqual(sediment_ids, [])
+        self.assertEqual(backend._get_conversation.call_count, 4)
+
+    def test_generate_single_image_retries_transient_http2_stream_errors(self) -> None:
+        attempts = 0
+
+        def flaky_stream(
+                _backend,
+                request: ConversationRequest,
+                index: int,
+                total: int,
+                _deadline: float,
+                **_kwargs,
+        ):
+            nonlocal attempts
+            attempts += 1
+            if attempts <= 3:
+                raise requests.exceptions.RequestException(
+                    "curl: (92) HTTP/2 stream 1 was not closed cleanly: INTERNAL_ERROR"
+                )
+            yield ImageOutput(
+                kind="result",
+                model=request.model,
+                index=index,
+                total=total,
+                data=[{"url": "https://files.test/one.png"}],
+            )
+
+        backend = mock.Mock()
+        with (
+            mock.patch.dict(config.data, {"image_total_timeout_secs": 60}),
+            mock.patch.object(conversation.account_service, "get_available_access_token", return_value="token-1"),
+            mock.patch.object(conversation.account_service, "get_account", return_value={"email": "a@example.test"}),
+            mock.patch.object(conversation.account_service, "mark_image_result"),
+            mock.patch.object(conversation, "OpenAIBackendAPI", return_value=backend),
+            mock.patch.object(conversation, "stream_image_outputs", side_effect=flaky_stream),
+            mock.patch("services.protocol.conversation._deadline_sleep", lambda _seconds, _deadline: None),
+        ):
+            outputs = conversation._generate_single_image(
+                ConversationRequest(prompt="cat", model="gpt-image-2"),
+                index=1,
+                total=1,
+            )
+
+        self.assertEqual(attempts, 4)
+        self.assertEqual(outputs[0].data, [{"url": "https://files.test/one.png"}])
+
+    def test_generate_single_image_preserves_backend_init_error(self) -> None:
+        with (
+            mock.patch.dict(config.data, {"image_total_timeout_secs": 60}),
+            mock.patch.object(conversation.account_service, "get_available_access_token", return_value="token-1"),
+            mock.patch.object(conversation.account_service, "get_account", return_value={"email": "a@example.test"}),
+            mock.patch.object(conversation.account_service, "mark_image_result"),
+            mock.patch.object(conversation, "OpenAIBackendAPI", side_effect=RuntimeError("backend init failed")),
+            mock.patch("services.protocol.conversation._deadline_sleep", lambda _seconds, _deadline: None),
+        ):
+            with self.assertRaises(conversation.ImageGenerationError) as caught:
+                conversation._generate_single_image(
+                    ConversationRequest(prompt="cat", model="gpt-image-2"),
+                    index=1,
+                    total=1,
+                )
+
+        self.assertIn("backend init failed", str(caught.exception))
 
     def test_resolver_uses_file_and_sediment_urls(self) -> None:
         backend = FakeBackend()
