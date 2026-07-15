@@ -103,6 +103,45 @@ def _safe_index(value: object) -> int:
         return 0
 
 
+def _failure_item(index: int, error: object, account_email: object = "") -> dict[str, Any]:
+    item: dict[str, Any] = {
+        "index": index,
+        "error": _clean(error) or "image generation failed",
+    }
+    email = _clean(account_email)
+    if email:
+        item["account_email"] = email
+    return item
+
+
+def _failure_items(failed_items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    failures: list[dict[str, Any]] = []
+    seen: set[int] = set()
+    for item in failed_items:
+        index = _safe_index(item.get("index"))
+        if index <= 0 or index in seen:
+            continue
+        failures.append(_failure_item(index, item.get("error"), item.get("account_email")))
+        seen.add(index)
+    return failures
+
+
+def _failures_with_missing(
+    failed_items: list[dict[str, Any]],
+    missing_indices: list[int],
+    missing_error: object,
+    account_email: object = "",
+) -> list[dict[str, Any]]:
+    failures = _failure_items(failed_items)
+    seen = {item["index"] for item in failures}
+    for index in missing_indices:
+        if index <= 0 or index in seen:
+            continue
+        failures.append(_failure_item(index, missing_error, account_email))
+        seen.add(index)
+    return sorted(failures, key=lambda item: item["index"])
+
+
 def _task_image_usage(
     payload: dict[str, Any],
     mode: str,
@@ -139,6 +178,8 @@ def _public_task(task: dict[str, Any]) -> dict[str, Any]:
         item["usage"] = task.get("usage")
     if task.get("error"):
         item["error"] = task.get("error")
+    if task.get("failures") is not None:
+        item["failures"] = task.get("failures")
     if task.get("progress"):
         item["progress"] = task.get("progress")
     if task.get("duration_ms") is not None:
@@ -318,6 +359,7 @@ class ImageTaskService:
             status=TASK_STATUS_RUNNING,
             error="",
             data=[],
+            failures=[],
             expected_count=expected_count,
             completed_count=0,
             failed_indices=[],
@@ -360,6 +402,11 @@ class ImageTaskService:
                             "error": _clean(chunk.get("error")),
                             "account_email": _clean(chunk.get("_account_email")),
                         })
+                        self._update_task(
+                            key,
+                            failures=_failure_items(failed_items),
+                            failed_indices=sorted({item["index"] for item in _failure_items(failed_items)}),
+                        )
                         continue
                     if chunk_object == "image.generation.message":
                         message = _clean(chunk.get("message") or chunk.get("progress_text") or chunk.get("text"))
@@ -389,6 +436,11 @@ class ImageTaskService:
                 upstream = _clean(result.get("message")) if isinstance(result, dict) else stream_message
                 if upstream:
                     message = upstream
+                elif failed_items:
+                    failed_idx_list = [item["index"] for item in failed_items if item["index"]]
+                    message = "全部图片生成失败：" + "; ".join(
+                        f"第{item['index']}张({item['error'][:80]})" for item in failed_items if item["index"]
+                    ) if failed_idx_list else "全部图片生成失败"
                 else:
                     message = "号池中没有可用账号或所有账号均被限流，请检查号池状态（账号额度、是否被封禁、是否到达生图上限）"
                 error = RuntimeError(message)
@@ -414,6 +466,7 @@ class ImageTaskService:
                     data=image_items,
                     usage=usage,
                     error=summary_error,
+                    failures=_failure_items(failed_items),
                     duration_ms=duration_ms,
                     completed_count=_completed_count(image_items),
                     failed_indices=all_failed_indices,
@@ -452,6 +505,7 @@ class ImageTaskService:
                     data=image_items,
                     usage=usage,
                     error="",
+                    failures=[],
                     duration_ms=duration_ms,
                     completed_count=_completed_count(image_items),
                     failed_indices=_failed_indices(expected_count, image_items),
@@ -475,10 +529,17 @@ class ImageTaskService:
                 task = self._tasks.get(key) or {}
                 partial_data = task.get("data") if isinstance(task.get("data"), list) else []
             if partial_data:
+                failures = _failures_with_missing(
+                    failed_items,
+                    _failed_indices(expected_count, partial_data),
+                    error_message,
+                    account_email,
+                )
                 self._update_task(
                     key,
                     status=TASK_STATUS_SUCCESS,
                     error=error_message,
+                    failures=failures,
                     duration_ms=duration_ms,
                     completed_count=_completed_count(partial_data),
                     failed_indices=_failed_indices(expected_count, partial_data),
@@ -513,11 +574,18 @@ class ImageTaskService:
                     )
                 return
             else:
+                failures = _failures_with_missing(
+                    failed_items,
+                    list(range(1, expected_count + 1)),
+                    error_message,
+                    account_email,
+                )
                 self._update_task(
                     key,
                     status=TASK_STATUS_ERROR,
                     error=error_message,
                     data=[],
+                    failures=failures,
                     duration_ms=duration_ms,
                     completed_count=0,
                     failed_indices=list(range(1, expected_count + 1)),
