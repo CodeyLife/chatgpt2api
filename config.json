@@ -88,6 +88,7 @@
     "ttl_seconds": 60,
     "max_entries": 256,
     "dedupe_inflight": true,
+    "inflight_timeout_seconds": 360,
     "stream_cache": true,
     "normalize_messages": true,
     "drop_adjacent_duplicates": true,

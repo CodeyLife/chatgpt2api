@@ -37,12 +37,46 @@ class CacheEntry:
     value: Any
 
 
+class ChatCompletionInflightTimeoutError(TimeoutError):
+    status_code = 504
+
+    def __init__(self, timeout_seconds: float) -> None:
+        self.timeout_seconds = timeout_seconds
+        super().__init__(f"chat completion inflight wait timed out after {timeout_seconds:g} seconds")
+
+    def to_openai_error(self) -> dict[str, object]:
+        return {
+            "error": {
+                "message": str(self),
+                "type": "server_error",
+                "code": "inflight_timeout",
+            }
+        }
+
+
+class ChatCompletionInflightCancelledError(RuntimeError):
+    status_code = 503
+
+    def __init__(self, message: str = "chat completion owner was cancelled before finishing") -> None:
+        super().__init__(message)
+
+    def to_openai_error(self) -> dict[str, object]:
+        return {
+            "error": {
+                "message": str(self),
+                "type": "server_error",
+                "code": "inflight_owner_cancelled",
+            }
+        }
+
+
 @dataclass
 class InflightCall:
     condition: threading.Condition = field(default_factory=lambda: threading.Condition(threading.RLock()))
+    started_at: float = field(default_factory=time.monotonic)
     done: bool = False
     value: Any = None
-    error: BaseException | None = None
+    error: Exception | None = None
 
 
 def _json_safe(value: Any) -> Any:
@@ -105,8 +139,14 @@ class ChatCompletionCache:
 
     def clear(self) -> None:
         with self._lock:
+            inflight = list(self._inflight.values())
             self._entries.clear()
             self._inflight.clear()
+        for item in inflight:
+            self._finish_inflight(
+                item,
+                error=ChatCompletionInflightCancelledError("chat completion cache was cleared before finishing"),
+            )
 
     def _settings(self) -> dict[str, object]:
         return config.get_chat_completion_cache_settings()
@@ -123,6 +163,89 @@ class ChatCompletionCache:
     def _copy(value: Any) -> Any:
         return copy.deepcopy(value)
 
+    @staticmethod
+    def _inflight_timeout(settings: dict[str, object]) -> float:
+        try:
+            return max(0.001, float(settings.get("inflight_timeout_seconds") or 360))
+        except (TypeError, ValueError):
+            return 360.0
+
+    @staticmethod
+    def _finish_inflight(
+        inflight: InflightCall,
+        *,
+        value: Any = None,
+        error: Exception | None = None,
+    ) -> bool:
+        with inflight.condition:
+            if inflight.done:
+                return False
+            inflight.value = value
+            inflight.error = error
+            inflight.done = True
+            inflight.condition.notify_all()
+            return True
+
+    def _remove_inflight_if_current(self, key: str, inflight: InflightCall) -> bool:
+        with self._lock:
+            if self._inflight.get(key) is not inflight:
+                return False
+            self._inflight.pop(key, None)
+            return True
+
+    def _claim_inflight_locked(
+        self,
+        key: str,
+        *,
+        dedupe_inflight: bool,
+        timeout_seconds: float,
+    ) -> tuple[InflightCall, bool, InflightCall | None]:
+        inflight = self._inflight.get(key) if dedupe_inflight else None
+        stale: InflightCall | None = None
+        if inflight is not None and time.monotonic() - inflight.started_at >= timeout_seconds:
+            self._inflight.pop(key, None)
+            stale = inflight
+            inflight = None
+        if inflight is None:
+            inflight = InflightCall()
+            if dedupe_inflight:
+                self._inflight[key] = inflight
+            return inflight, True, stale
+        return inflight, False, stale
+
+    def _wait_for_inflight(
+        self,
+        key: str,
+        inflight: InflightCall,
+        timeout_seconds: float,
+    ) -> Any:
+        deadline = inflight.started_at + timeout_seconds
+        with inflight.condition:
+            while not inflight.done:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    break
+                inflight.condition.wait(timeout=remaining)
+            if inflight.done:
+                if inflight.error:
+                    raise inflight.error
+                return self._copy(inflight.value)
+
+        timeout_error = ChatCompletionInflightTimeoutError(timeout_seconds)
+        self._remove_inflight_if_current(key, inflight)
+        if self._finish_inflight(inflight, error=timeout_error):
+            raise timeout_error
+        with inflight.condition:
+            if inflight.error:
+                raise inflight.error
+            return self._copy(inflight.value)
+
+    @staticmethod
+    def _waiter_error(exc: BaseException) -> Exception:
+        if isinstance(exc, Exception):
+            return exc
+        return ChatCompletionInflightCancelledError()
+
     def get_or_compute_response(self, key: str, compute: Callable[[], dict[str, Any]]) -> dict[str, Any]:
         settings = self._settings()
         if not settings.get("enabled") or int(settings.get("ttl_seconds") or 0) <= 0:
@@ -130,48 +253,41 @@ class ChatCompletionCache:
 
         now = time.time()
         max_entries = int(settings.get("max_entries") or 1)
+        dedupe_inflight = bool(settings.get("dedupe_inflight"))
+        inflight_timeout = self._inflight_timeout(settings)
         with self._lock:
             self._prune_locked(now, max_entries)
             entry = self._entries.get(key)
             if entry and entry.expires_at > now:
                 return self._copy(entry.value)
-            inflight = self._inflight.get(key) if settings.get("dedupe_inflight") else None
-            if inflight is None:
-                inflight = InflightCall()
-                if settings.get("dedupe_inflight"):
-                    self._inflight[key] = inflight
-                owner = True
-            else:
-                owner = False
+            inflight, owner, stale = self._claim_inflight_locked(
+                key,
+                dedupe_inflight=dedupe_inflight,
+                timeout_seconds=inflight_timeout,
+            )
+
+        if stale is not None:
+            self._finish_inflight(stale, error=ChatCompletionInflightTimeoutError(inflight_timeout))
 
         if not owner:
-            with inflight.condition:
-                while not inflight.done:
-                    inflight.condition.wait()
-                if inflight.error:
-                    raise inflight.error
-                return self._copy(inflight.value)
+            return self._wait_for_inflight(key, inflight, inflight_timeout)
 
         try:
             value = compute()
         except BaseException as exc:
-            with self._lock:
-                self._inflight.pop(key, None)
-            with inflight.condition:
-                inflight.error = exc
-                inflight.done = True
-                inflight.condition.notify_all()
+            self._remove_inflight_if_current(key, inflight)
+            self._finish_inflight(inflight, error=self._waiter_error(exc))
             raise
 
         expires_at = time.time() + int(settings.get("ttl_seconds") or 0)
         with self._lock:
-            self._entries[key] = CacheEntry(expires_at=expires_at, value=value)
-            self._prune_locked(time.time(), max_entries)
-            self._inflight.pop(key, None)
-        with inflight.condition:
-            inflight.value = value
-            inflight.done = True
-            inflight.condition.notify_all()
+            is_current = self._inflight.get(key) is inflight
+            if not dedupe_inflight or is_current:
+                self._entries[key] = CacheEntry(expires_at=expires_at, value=value)
+                self._prune_locked(time.time(), max_entries)
+            if is_current:
+                self._inflight.pop(key, None)
+        self._finish_inflight(inflight, value=value)
         return self._copy(value)
 
     def get_or_compute_stream(self, key: str, compute: Callable[[], Iterable[dict[str, Any]]]) -> Iterator[dict[str, Any]]:
@@ -186,29 +302,26 @@ class ChatCompletionCache:
 
         now = time.time()
         max_entries = int(settings.get("max_entries") or 1)
+        dedupe_inflight = bool(settings.get("dedupe_inflight"))
+        inflight_timeout = self._inflight_timeout(settings)
         with self._lock:
             self._prune_locked(now, max_entries)
             entry = self._entries.get(key)
             if entry and entry.expires_at > now:
                 yield from self._copy(entry.value)
                 return
-            inflight = self._inflight.get(key) if settings.get("dedupe_inflight") else None
-            if inflight is None:
-                inflight = InflightCall()
-                if settings.get("dedupe_inflight"):
-                    self._inflight[key] = inflight
-                owner = True
-            else:
-                owner = False
+            inflight, owner, stale = self._claim_inflight_locked(
+                key,
+                dedupe_inflight=dedupe_inflight,
+                timeout_seconds=inflight_timeout,
+            )
+
+        if stale is not None:
+            self._finish_inflight(stale, error=ChatCompletionInflightTimeoutError(inflight_timeout))
 
         if not owner:
-            with inflight.condition:
-                while not inflight.done:
-                    inflight.condition.wait()
-                if inflight.error:
-                    raise inflight.error
-                yield from self._copy(inflight.value)
-                return
+            yield from self._wait_for_inflight(key, inflight, inflight_timeout)
+            return
 
         chunks: list[dict[str, Any]] = []
         try:
@@ -216,23 +329,19 @@ class ChatCompletionCache:
                 chunks.append(chunk)
                 yield chunk
         except BaseException as exc:
-            with self._lock:
-                self._inflight.pop(key, None)
-            with inflight.condition:
-                inflight.error = exc
-                inflight.done = True
-                inflight.condition.notify_all()
+            self._remove_inflight_if_current(key, inflight)
+            self._finish_inflight(inflight, error=self._waiter_error(exc))
             raise
 
         expires_at = time.time() + int(settings.get("ttl_seconds") or 0)
         with self._lock:
-            self._entries[key] = CacheEntry(expires_at=expires_at, value=chunks)
-            self._prune_locked(time.time(), max_entries)
-            self._inflight.pop(key, None)
-        with inflight.condition:
-            inflight.value = chunks
-            inflight.done = True
-            inflight.condition.notify_all()
+            is_current = self._inflight.get(key) is inflight
+            if not dedupe_inflight or is_current:
+                self._entries[key] = CacheEntry(expires_at=expires_at, value=chunks)
+                self._prune_locked(time.time(), max_entries)
+            if is_current:
+                self._inflight.pop(key, None)
+        self._finish_inflight(inflight, value=chunks)
 
 
 chat_completion_cache = ChatCompletionCache()

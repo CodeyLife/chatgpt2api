@@ -43,6 +43,7 @@ DEFAULT_CHAT_COMPLETION_CACHE = {
     "ttl_seconds": 60,
     "max_entries": 256,
     "dedupe_inflight": True,
+    "inflight_timeout_seconds": 360,
     "stream_cache": True,
     "normalize_messages": True,
     "drop_adjacent_duplicates": True,
@@ -179,6 +180,11 @@ def _normalize_chat_completion_cache_settings(value: object) -> dict[str, object
         "dedupe_inflight": _normalize_bool(
             source.get("dedupe_inflight"),
             bool(DEFAULT_CHAT_COMPLETION_CACHE["dedupe_inflight"]),
+        ),
+        "inflight_timeout_seconds": _normalize_positive_int(
+            source.get("inflight_timeout_seconds"),
+            int(DEFAULT_CHAT_COMPLETION_CACHE["inflight_timeout_seconds"]),
+            1,
         ),
         "stream_cache": _normalize_bool(
             source.get("stream_cache"),

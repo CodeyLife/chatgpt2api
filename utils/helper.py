@@ -195,39 +195,54 @@ def ensure_ok(response: requests.Response, context: str) -> None:
     raise UpstreamHTTPError(context, response.status_code, body, retry_after=retry_after)
 
 
+def _close_iterator(items) -> None:
+    close = getattr(items, "close", None)
+    if callable(close):
+        try:
+            close()
+        except Exception:
+            pass
+
+
 def sse_json_stream(items) -> Iterator[str]:
-    yield ": stream-open\n\n"
     try:
-        for item in items:
-            yield f"data: {json.dumps(item, ensure_ascii=False)}\n\n"
-    except Exception as exc:
-        logger.warning({
-            "event": "sse_stream_error",
-            "error_type": exc.__class__.__name__,
-            "error": str(exc),
-        })
-        error = exc.to_openai_error() if hasattr(exc, "to_openai_error") else {
-            "error": {"message": str(exc), "type": exc.__class__.__name__}
-        }
-        yield f"data: {json.dumps(error, ensure_ascii=False)}\n\n"
-    yield "data: [DONE]\n\n"
+        yield ": stream-open\n\n"
+        try:
+            for item in items:
+                yield f"data: {json.dumps(item, ensure_ascii=False)}\n\n"
+        except Exception as exc:
+            logger.warning({
+                "event": "sse_stream_error",
+                "error_type": exc.__class__.__name__,
+                "error": str(exc),
+            })
+            error = exc.to_openai_error() if hasattr(exc, "to_openai_error") else {
+                "error": {"message": str(exc), "type": exc.__class__.__name__}
+            }
+            yield f"data: {json.dumps(error, ensure_ascii=False)}\n\n"
+        yield "data: [DONE]\n\n"
+    finally:
+        _close_iterator(items)
 
 
 def anthropic_sse_stream(items) -> Iterator[str]:
     try:
-        for item in items:
-            event = str(item.get("type") or "message_delta") if isinstance(item, dict) else "message_delta"
-            yield f"event: {event}\n"
-            yield f"data: {json.dumps(item, ensure_ascii=False)}\n\n"
-    except Exception as exc:
-        logger.warning({
-            "event": "anthropic_sse_stream_error",
-            "error_type": exc.__class__.__name__,
-            "error": str(exc),
-        })
-        error = {"type": "error", "error": {"type": exc.__class__.__name__, "message": str(exc)}}
-        yield "event: error\n"
-        yield f"data: {json.dumps(error, ensure_ascii=False)}\n\n"
+        try:
+            for item in items:
+                event = str(item.get("type") or "message_delta") if isinstance(item, dict) else "message_delta"
+                yield f"event: {event}\n"
+                yield f"data: {json.dumps(item, ensure_ascii=False)}\n\n"
+        except Exception as exc:
+            logger.warning({
+                "event": "anthropic_sse_stream_error",
+                "error_type": exc.__class__.__name__,
+                "error": str(exc),
+            })
+            error = {"type": "error", "error": {"type": exc.__class__.__name__, "message": str(exc)}}
+            yield "event: error\n"
+            yield f"data: {json.dumps(error, ensure_ascii=False)}\n\n"
+    finally:
+        _close_iterator(items)
 
 
 def iter_sse_payloads(

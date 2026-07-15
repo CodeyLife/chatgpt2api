@@ -4,12 +4,21 @@ import unittest
 from unittest import mock
 import json
 import base64
+import threading
+import time
 
 from services.config import config
+from services.log_service import LoggedCall, _prepend_item
 from services.protocol import openai_v1_chat_complete, openai_v1_response
-from services.protocol.chat_completion_cache import cache_key, chat_completion_cache
+from services.protocol.chat_completion_cache import (
+    ChatCompletionCache,
+    ChatCompletionInflightCancelledError,
+    ChatCompletionInflightTimeoutError,
+    cache_key,
+    chat_completion_cache,
+)
 from services.protocol.conversation import iter_conversation_payloads, sanitize_output_text
-from utils.helper import extract_image_from_message_content
+from utils.helper import extract_image_from_message_content, sse_json_stream
 
 
 PNG_1X1 = base64.b64decode(
@@ -32,6 +41,20 @@ class ChatCompletionCacheTests(unittest.TestCase):
             "drop_assistant_history": False,
         }
         chat_completion_cache.clear()
+
+    @staticmethod
+    def _local_cache(timeout_seconds: float = 0.05) -> ChatCompletionCache:
+        cache = ChatCompletionCache()
+        cache._settings = lambda: {
+            "enabled": True,
+            "ttl_seconds": 60,
+            "max_entries": 32,
+            "dedupe_inflight": True,
+            "inflight_timeout_seconds": 360,
+            "stream_cache": True,
+            "inflight_timeout_seconds": timeout_seconds,
+        }
+        return cache
 
     def tearDown(self) -> None:
         if self.old_cache_settings is None:
@@ -65,6 +88,100 @@ class ChatCompletionCacheTests(unittest.TestCase):
             first["choices"][0]["message"]["content"],
             second["choices"][0]["message"]["content"],
         )
+
+    def test_non_stream_inflight_wait_has_hard_timeout(self) -> None:
+        cache = self._local_cache()
+        owner_started = threading.Event()
+        release_owner = threading.Event()
+
+        def compute_owner():
+            owner_started.set()
+            release_owner.wait(1)
+            return {"owner": True}
+
+        owner = threading.Thread(target=lambda: cache.get_or_compute_response("same", compute_owner))
+        owner.start()
+        self.assertTrue(owner_started.wait(1))
+
+        started = time.monotonic()
+        with self.assertRaises(ChatCompletionInflightTimeoutError):
+            cache.get_or_compute_response("same", lambda: {"follower": True})
+        self.assertLess(time.monotonic() - started, 0.5)
+
+        release_owner.set()
+        owner.join(1)
+        self.assertFalse(owner.is_alive())
+
+    def test_stale_owner_cannot_overwrite_new_cache_entry(self) -> None:
+        cache = self._local_cache()
+        owner_started = threading.Event()
+        release_owner = threading.Event()
+
+        def compute_old_owner():
+            owner_started.set()
+            release_owner.wait(1)
+            return {"value": "old"}
+
+        owner = threading.Thread(target=lambda: cache.get_or_compute_response("same", compute_old_owner))
+        owner.start()
+        self.assertTrue(owner_started.wait(1))
+        with self.assertRaises(ChatCompletionInflightTimeoutError):
+            cache.get_or_compute_response("same", lambda: {"value": "follower"})
+
+        replacement = cache.get_or_compute_response("same", lambda: {"value": "new"})
+        release_owner.set()
+        owner.join(1)
+        replayed = cache.get_or_compute_response("same", lambda: {"value": "unexpected"})
+
+        self.assertEqual(replacement, {"value": "new"})
+        self.assertEqual(replayed, {"value": "new"})
+
+    def test_stream_inflight_wait_has_hard_timeout(self) -> None:
+        cache = self._local_cache()
+        owner = cache.get_or_compute_stream("same", lambda: iter(({"chunk": 1}, {"chunk": 2})))
+        self.assertEqual(next(owner), {"chunk": 1})
+
+        follower = cache.get_or_compute_stream("same", lambda: ())
+        started = time.monotonic()
+        with self.assertRaises(ChatCompletionInflightTimeoutError):
+            next(follower)
+        self.assertLess(time.monotonic() - started, 0.5)
+
+        owner.close()
+
+    def test_closing_http_stream_cleans_inflight_and_wakes_followers(self) -> None:
+        cache = self._local_cache(timeout_seconds=1)
+
+        def compute():
+            yield {"chunk": 1}
+            yield {"chunk": 2}
+
+        owner = cache.get_or_compute_stream("same", compute)
+        first = next(owner)
+        follower_error: list[BaseException] = []
+
+        def consume_follower() -> None:
+            try:
+                list(cache.get_or_compute_stream("same", lambda: ()))
+            except BaseException as exc:
+                follower_error.append(exc)
+
+        follower = threading.Thread(target=consume_follower)
+        follower.start()
+        time.sleep(0.02)
+
+        call = LoggedCall({"id": "test", "name": "test", "role": "admin"}, "/v1/chat/completions", "auto", "test")
+        with mock.patch.object(call, "log"):
+            response_body = sse_json_stream(call.stream(_prepend_item(first, owner)))
+            self.assertEqual(next(response_body), ": stream-open\n\n")
+            self.assertIn('"chunk": 1', next(response_body))
+            response_body.close()
+
+        follower.join(1)
+        self.assertFalse(follower.is_alive())
+        self.assertNotIn("same", cache._inflight)
+        self.assertEqual(len(follower_error), 1)
+        self.assertIsInstance(follower_error[0], ChatCompletionInflightCancelledError)
 
     def test_cache_key_distinguishes_thinking_effort_inputs(self) -> None:
         messages = [{"role": "user", "content": "same prompt"}]
