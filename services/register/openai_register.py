@@ -471,6 +471,7 @@ from utils.sentinel import (  # noqa: F401
     build_sentinel_tokens as _build_sentinel_tokens_tuple,
 )
 from utils.chromium_sentinel import (  # noqa: F401
+    ChromiumSentinelSession,
     DEFAULT_SENTINEL_SDK_URL as DEFAULT_CHROMIUM_SENTINEL_SDK_URL,
     build_chromium_sentinel_token,
 )
@@ -515,6 +516,7 @@ def build_sentinel_headers(
     sentinel_browser_chrome_path: str = "",
     sentinel_browser_sdk_url: str = "",
     sentinel_browser_fallback: bool = True,
+    sentinel_browser_provider: ChromiumSentinelSession | None = None,
 ) -> dict[str, str]:
     """构造注册接口需要的 Sentinel headers。
 
@@ -528,16 +530,19 @@ def build_sentinel_headers(
     """
     if sentinel_browser_enabled:
         try:
-            browser_result = build_chromium_sentinel_token(
-                flow=flow,
-                device_id=device_id,
-                user_agent=profile.user_agent,
-                sdk_url=sentinel_browser_sdk_url or DEFAULT_CHROMIUM_SENTINEL_SDK_URL,
-                screen_resolution=profile.screen_resolution,
-                headless=sentinel_browser_headless,
-                chrome_path=sentinel_browser_chrome_path,
-                timeout=sentinel_browser_timeout,
-            )
+            if sentinel_browser_provider is not None:
+                browser_result = sentinel_browser_provider.token(flow=flow, device_id=device_id)
+            else:
+                browser_result = build_chromium_sentinel_token(
+                    flow=flow,
+                    device_id=device_id,
+                    user_agent=profile.user_agent,
+                    sdk_url=sentinel_browser_sdk_url or DEFAULT_CHROMIUM_SENTINEL_SDK_URL,
+                    screen_resolution=profile.screen_resolution,
+                    headless=sentinel_browser_headless,
+                    chrome_path=sentinel_browser_chrome_path,
+                    timeout=sentinel_browser_timeout,
+                )
             headers = {"openai-sentinel-token": browser_result.token}
             if browser_result.so_token:
                 headers["openai-sentinel-so-token"] = browser_result.so_token
@@ -700,9 +705,23 @@ class PlatformRegistrar:
         self.code_verifier = ""
         self.platform_auth_code = ""
         self.sentinel_options = _sentinel_browser_options()
+        if self.sentinel_options["sentinel_browser_enabled"]:
+            self.sentinel_options["sentinel_browser_provider"] = ChromiumSentinelSession(
+                user_agent=self.profile.user_agent,
+                sdk_url=self.sentinel_options["sentinel_browser_sdk_url"] or DEFAULT_CHROMIUM_SENTINEL_SDK_URL,
+                screen_resolution=self.profile.screen_resolution,
+                headless=self.sentinel_options["sentinel_browser_headless"],
+                chrome_path=self.sentinel_options["sentinel_browser_chrome_path"],
+                timeout=self.sentinel_options["sentinel_browser_timeout"],
+            )
 
     def close(self) -> None:
-        self.session.close()
+        provider = self.sentinel_options.get("sentinel_browser_provider")
+        try:
+            if provider is not None:
+                provider.close()
+        finally:
+            self.session.close()
 
     def _navigate_headers(self, referer: str = "") -> dict[str, str]:
         headers = build_navigate_headers(self.profile)

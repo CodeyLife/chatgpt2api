@@ -332,6 +332,68 @@ class RegisterProxyRuntimeTests(unittest.TestCase):
         self.assertEqual(provider_kwargs["chrome_path"], "C:/Chrome/chrome.exe")
         self.assertEqual(provider_kwargs["sdk_url"], "https://sentinel.openai.com/sentinel/test/sdk.js")
 
+    def test_sentinel_headers_reuse_chromium_session_provider(self):
+        class SentinelSession:
+            def post(self, *args, **kwargs):
+                raise AssertionError("browser provider should not call backend sentinel req")
+
+        class BrowserProvider:
+            def __init__(self):
+                self.calls = []
+
+            def token(self, *, flow, device_id):
+                self.calls.append((flow, device_id))
+                return chromium_sentinel.ChromiumSentinelResult(
+                    token=f'{{"p":"browser-p","t":"","c":"browser-c","id":"{device_id}","flow":"{flow}"}}',
+                    so_token="",
+                )
+
+        provider = BrowserProvider()
+        for flow in ("username_password_create", "oauth_create_account"):
+            headers = openai_register.build_sentinel_headers(
+                SentinelSession(),
+                "device-1",
+                flow,
+                profile=fingerprint.DEFAULT_PROFILE,
+                sentinel_browser_enabled=True,
+                sentinel_browser_provider=provider,
+            )
+            self.assertIn(f'"flow":"{flow}"', headers["openai-sentinel-token"])
+
+        self.assertEqual(
+            provider.calls,
+            [
+                ("username_password_create", "device-1"),
+                ("oauth_create_account", "device-1"),
+            ],
+        )
+
+    def test_platform_registrar_owns_one_lazy_chromium_session(self):
+        fake_http_session = FakeSession()
+
+        class BrowserProvider:
+            def __init__(self, **kwargs):
+                self.kwargs = kwargs
+                self.closed = False
+
+            def close(self):
+                self.closed = True
+
+        with patch.object(openai_register, "create_session", return_value=fake_http_session), patch.object(
+            openai_register,
+            "ChromiumSentinelSession",
+            BrowserProvider,
+        ):
+            registrar = openai_register.PlatformRegistrar(profile=fingerprint.DEFAULT_PROFILE)
+            provider = registrar.sentinel_options["sentinel_browser_provider"]
+            registrar.close()
+
+        self.assertIsInstance(provider, BrowserProvider)
+        self.assertEqual(provider.kwargs["user_agent"], fingerprint.DEFAULT_PROFILE.user_agent)
+        self.assertEqual(provider.kwargs["screen_resolution"], fingerprint.DEFAULT_PROFILE.screen_resolution)
+        self.assertTrue(provider.closed)
+        self.assertTrue(fake_http_session.closed)
+
     def test_sentinel_headers_fallback_to_backend_when_chromium_provider_fails(self):
         with patch.object(openai_register, "build_chromium_sentinel_token", side_effect=RuntimeError("timeout")), patch.object(
             openai_register,
@@ -385,6 +447,59 @@ class RegisterProxyRuntimeTests(unittest.TestCase):
             page = chromium_sentinel._select_page(9222, 1)
 
         self.assertEqual(page["webSocketDebuggerUrl"], "ws://127.0.0.1/devtools/page/chatgpt")
+
+    def test_chromium_sentinel_launches_blank_before_auth_navigation(self):
+        args = chromium_sentinel._chrome_launch_args(
+            chrome="C:/Chrome/chrome.exe",
+            user_agent=fingerprint.DEFAULT_PROFILE.user_agent,
+            screen_resolution="1920x1080",
+            user_data_dir=Path("C:/sentinel-profile"),
+            headless=True,
+        )
+
+        self.assertEqual(args[-1], "about:blank")
+        self.assertNotIn("https://auth.openai.com/", args)
+        self.assertIn("--blink-settings=imagesEnabled=false", args)
+
+    def test_chromium_sentinel_blocks_heavy_resources_before_auth_navigation(self):
+        calls = []
+        client_state = {"closed": False}
+
+        class FakeCDPClient:
+            def __init__(self, *args, **kwargs):
+                pass
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, exc_type, exc, tb):
+                client_state["closed"] = True
+
+            def call(self, method, params=None, timeout=None):
+                calls.append((method, params or {}))
+                return {"result": {}}
+
+        provider = chromium_sentinel.ChromiumSentinelSession(
+            user_agent=fingerprint.DEFAULT_PROFILE.user_agent,
+        )
+        provider._port = 9222
+        page = {"webSocketDebuggerUrl": "ws://127.0.0.1/devtools/page/blank"}
+        with patch.object(chromium_sentinel, "_select_page", return_value=page), patch.object(
+            chromium_sentinel,
+            "_CDPClient",
+            FakeCDPClient,
+        ), patch.object(chromium_sentinel.time, "sleep"):
+            provider._prepare_auth_page()
+
+        methods = [method for method, _params in calls]
+        self.assertLess(methods.index("Network.setBlockedURLs"), methods.index("Page.navigate"))
+        blocked_urls = dict(calls)["Network.setBlockedURLs"]["urls"]
+        self.assertIn("*://auth-cdn.oaistatic.com/*", blocked_urls)
+        self.assertIn("*://chatgpt.com/*.js*", blocked_urls)
+        self.assertEqual(dict(calls)["Page.navigate"]["url"], "https://auth.openai.com/")
+        self.assertFalse(client_state["closed"])
+        provider.close()
+        self.assertTrue(client_state["closed"])
 
     def test_chromium_sentinel_detects_navigation_race_errors(self):
         self.assertTrue(

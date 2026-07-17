@@ -38,6 +38,36 @@ DEFAULT_CHROME_PATHS = [
     "/opt/google/chrome/chrome",
 ]
 
+AUTH_PAGE_URL = "https://auth.openai.com/"
+BLOCKED_AUTH_RESOURCE_URLS = (
+    "*://auth-cdn.oaistatic.com/*",
+    "*://cdn.openai.com/*",
+    "*://accounts.google.com/*",
+    "*://chatgpt.com/*.js*",
+    "*://chat.openai.com/*.js*",
+    "*.css",
+    "*.css?*",
+    "*.png",
+    "*.png?*",
+    "*.jpg",
+    "*.jpg?*",
+    "*.jpeg",
+    "*.jpeg?*",
+    "*.gif",
+    "*.gif?*",
+    "*.webp",
+    "*.webp?*",
+    "*.svg",
+    "*.svg?*",
+    "*.ico",
+    "*.ico?*",
+    "*.woff*",
+    "*.ttf*",
+    "*.otf*",
+    "*.mp4*",
+    "*.webm*",
+)
+
 
 @dataclass(frozen=True)
 class ChromiumSentinelResult:
@@ -323,22 +353,165 @@ def _chrome_user_data_parent() -> Path:
     return base
 
 
-def build_chromium_sentinel_token(
+class ChromiumSentinelSession:
+    """单账号复用的惰性 Chromium Sentinel 会话。"""
+
+    def __init__(
+        self,
+        *,
+        user_agent: str,
+        sdk_url: str = DEFAULT_SENTINEL_SDK_URL,
+        screen_resolution: str = "1920x1080",
+        headless: bool = True,
+        chrome_path: str = "",
+        timeout: float = 35.0,
+    ) -> None:
+        self.user_agent = user_agent
+        self.sdk_url = sdk_url
+        self.screen_resolution = screen_resolution
+        self.headless = headless
+        self.chrome_path = chrome_path
+        self.timeout = timeout
+        self._sdk_source = ""
+        self._port = 0
+        self._proc: subprocess.Popen | None = None
+        self._user_data_dir: Path | None = None
+        self._stderr_path: Path | None = None
+        self._stderr_file = None
+        self._network_client: _CDPClient | None = None
+
+    def __enter__(self) -> "ChromiumSentinelSession":
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        self.close()
+
+    def _start(self) -> None:
+        if self._proc is not None:
+            return
+        chrome = _find_chrome(self.chrome_path)
+        self._sdk_source = _load_sdk(self.sdk_url, self.user_agent, min(20.0, self.timeout))
+        user_data_dir = Path(tempfile.mkdtemp(prefix="sentinel-chrome-", dir=str(_chrome_user_data_parent())))
+        stderr_path = user_data_dir / "chrome-stderr.log"
+        self._user_data_dir = user_data_dir
+        self._stderr_path = stderr_path
+        args = _chrome_launch_args(
+            chrome=chrome,
+            user_agent=self.user_agent,
+            screen_resolution=self.screen_resolution,
+            user_data_dir=user_data_dir,
+            headless=self.headless,
+        )
+        self._stderr_file = stderr_path.open("wb")
+        proc = subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=self._stderr_file)
+        self._proc = proc
+        try:
+            try:
+                self._port = _read_devtools_port(user_data_dir, min(15.0, self.timeout))
+            except Exception as error:
+                raise _chrome_startup_error(error, proc, chrome, stderr_path) from error
+            self._prepare_auth_page()
+        except Exception:
+            self.close()
+            raise
+
+    def _prepare_auth_page(self) -> None:
+        page = _select_page(self._port, min(10.0, self.timeout))
+        client = _CDPClient(str(page["webSocketDebuggerUrl"]), timeout=self.timeout)
+        try:
+            client.__enter__()
+            self._network_client = client
+            client.call("Page.enable", timeout=5)
+            client.call("Network.enable", timeout=5)
+            client.call("Network.setBlockedURLs", {"urls": list(BLOCKED_AUTH_RESOURCE_URLS)}, timeout=5)
+            navigation = client.call("Page.navigate", {"url": AUTH_PAGE_URL}, timeout=10)
+            error_text = str(navigation.get("result", {}).get("errorText") or "").strip()
+            if error_text:
+                raise RuntimeError(f"Chromium auth page navigation failed: {error_text}")
+            # 保持该 CDP 连接直到 close，确保阻断规则覆盖后续懒加载资源。
+            time.sleep(2.5)
+        except Exception:
+            self._network_client = None
+            client.__exit__(None, None, None)
+            raise
+
+    def token(self, *, flow: str, device_id: str) -> ChromiumSentinelResult:
+        self._start()
+        expression = _sentinel_expression(
+            sdk_source=self._sdk_source,
+            sdk_url=self.sdk_url,
+            flow=flow,
+            device_id=device_id,
+            timeout=self.timeout,
+        )
+        response = None
+        last_error: Exception | None = None
+        for attempt in range(6):
+            if attempt:
+                time.sleep(min(1.5, 0.5 + attempt * 0.25))
+            page = _select_page(self._port, min(10.0, self.timeout))
+            try:
+                with _CDPClient(str(page["webSocketDebuggerUrl"]), timeout=self.timeout) as client:
+                    try:
+                        client.call("Page.enable", timeout=5)
+                    except Exception:
+                        pass
+                    client.call("Runtime.enable", timeout=10)
+                    time.sleep(0.25)
+                    response = client.call(
+                        "Runtime.evaluate",
+                        {"expression": expression, "awaitPromise": True, "returnByValue": True},
+                        timeout=self.timeout + 5,
+                    )
+                break
+            except Exception as error:
+                last_error = error
+                if attempt < 5 and _is_target_navigation_error(error):
+                    continue
+                raise
+        if response is None:
+            raise RuntimeError(f"Chromium Sentinel 执行失败: {last_error}")
+        result = response.get("result", {}).get("result", {})
+        if response.get("result", {}).get("exceptionDetails"):
+            detail = response["result"]["exceptionDetails"]
+            raise RuntimeError(f"Chromium Sentinel 执行异常: {detail.get('text') or detail}")
+        value = result.get("value") if isinstance(result, dict) else None
+        if not isinstance(value, dict) or not str(value.get("token") or "").strip():
+            raise RuntimeError(f"Chromium Sentinel 未返回 token: {value!r}")
+        return ChromiumSentinelResult(token=str(value["token"]).strip(), so_token=str(value.get("soToken") or "").strip())
+
+    def close(self) -> None:
+        network_client = self._network_client
+        self._network_client = None
+        if network_client is not None:
+            try:
+                network_client.__exit__(None, None, None)
+            except Exception:
+                pass
+        stderr_file = self._stderr_file
+        self._stderr_file = None
+        if stderr_file is not None:
+            try:
+                stderr_file.close()
+            except Exception:
+                pass
+        proc = self._proc
+        user_data_dir = self._user_data_dir
+        self._proc = None
+        self._user_data_dir = None
+        self._port = 0
+        if proc is not None and user_data_dir is not None:
+            _cleanup_chrome_process_and_profile(proc, user_data_dir)
+
+
+def _chrome_launch_args(
     *,
-    flow: str,
-    device_id: str,
+    chrome: str,
     user_agent: str,
-    sdk_url: str = DEFAULT_SENTINEL_SDK_URL,
-    screen_resolution: str = "1920x1080",
-    headless: bool = True,
-    chrome_path: str = "",
-    timeout: float = 35.0,
-) -> ChromiumSentinelResult:
-    """用真实 Chromium 执行 Sentinel SDK，返回 header token。"""
-    chrome = _find_chrome(chrome_path)
-    sdk_source = _load_sdk(sdk_url, user_agent, min(20.0, timeout))
-    user_data_dir = Path(tempfile.mkdtemp(prefix="sentinel-chrome-", dir=str(_chrome_user_data_parent())))
-    stderr_path = user_data_dir / "chrome-stderr.log"
+    screen_resolution: str,
+    user_data_dir: Path,
+    headless: bool,
+) -> list[str]:
     extra_args = [
         item.strip()
         for item in str(os.getenv("CHATGPT2API_CHROME_ARGS") or "").split()
@@ -360,26 +533,22 @@ def build_chromium_sentinel_token(
         "--no-default-browser-check",
         "--remote-debugging-port=0",
         "--remote-allow-origins=*",
+        "--blink-settings=imagesEnabled=false",
         "--lang=zh-CN",
         f"--user-agent={user_agent}",
         _window_size_arg(screen_resolution),
         f"--user-data-dir={user_data_dir}",
-        "https://auth.openai.com/",
+        "about:blank",
     ]
     if headless:
         args.insert(1, "--headless=new")
     if extra_args:
         args[1:1] = extra_args
-    stderr_file = stderr_path.open("wb")
-    proc = subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=stderr_file)
-    try:
-        try:
-            port = _read_devtools_port(user_data_dir, min(15.0, timeout))
-        except Exception as error:
-            raise _chrome_startup_error(error, proc, chrome, stderr_path) from error
-        # 给 auth 页面和 Cloudflare/iframe 初始化一点时间；后续 SDK 调用还有独立超时。
-        time.sleep(2.5)
-        expression = f"""
+    return args
+
+
+def _sentinel_expression(*, sdk_source: str, sdk_url: str, flow: str, device_id: str, timeout: float) -> str:
+    return f"""
 (async()=>{{
   const sdkSource = {json.dumps(sdk_source)};
   const flow = {json.dumps(flow)};
@@ -402,48 +571,26 @@ def build_chromium_sentinel_token(
   return {{ token, soToken }};
 }})()
 """
-        response = None
-        last_error: Exception | None = None
-        # 首次打开 auth.openai.com 后上游可能立刻跳到 chatgpt.com/auth/login_with，
-        # CDP 在 Runtime.evaluate 期间会偶发 target navigated/closed。这里重选
-        # 当前 page target 再试，避免直接回退后端 PoW。
-        for attempt in range(6):
-            if attempt:
-                time.sleep(min(1.5, 0.5 + attempt * 0.25))
-            page = _select_page(port, min(10.0, timeout))
-            try:
-                with _CDPClient(str(page["webSocketDebuggerUrl"]), timeout=timeout) as client:
-                    try:
-                        client.call("Page.enable", timeout=5)
-                    except Exception:
-                        pass
-                    client.call("Runtime.enable", timeout=10)
-                    # 等一小段时间让新导航后的默认 execution context 出现。
-                    time.sleep(0.25)
-                    response = client.call(
-                        "Runtime.evaluate",
-                        {"expression": expression, "awaitPromise": True, "returnByValue": True},
-                        timeout=timeout + 5,
-                    )
-                break
-            except Exception as error:
-                last_error = error
-                if attempt < 5 and _is_target_navigation_error(error):
-                    continue
-                raise
-        if response is None:
-            raise RuntimeError(f"Chromium Sentinel 执行失败: {last_error}")
-        result = response.get("result", {}).get("result", {})
-        if response.get("result", {}).get("exceptionDetails"):
-            detail = response["result"]["exceptionDetails"]
-            raise RuntimeError(f"Chromium Sentinel 执行异常: {detail.get('text') or detail}")
-        value = result.get("value") if isinstance(result, dict) else None
-        if not isinstance(value, dict) or not str(value.get("token") or "").strip():
-            raise RuntimeError(f"Chromium Sentinel 未返回 token: {value!r}")
-        return ChromiumSentinelResult(token=str(value["token"]).strip(), so_token=str(value.get("soToken") or "").strip())
-    finally:
-        try:
-            stderr_file.close()
-        except Exception:
-            pass
-        _cleanup_chrome_process_and_profile(proc, user_data_dir)
+
+
+def build_chromium_sentinel_token(
+    *,
+    flow: str,
+    device_id: str,
+    user_agent: str,
+    sdk_url: str = DEFAULT_SENTINEL_SDK_URL,
+    screen_resolution: str = "1920x1080",
+    headless: bool = True,
+    chrome_path: str = "",
+    timeout: float = 35.0,
+) -> ChromiumSentinelResult:
+    """兼容旧调用方的一次性 Chromium Sentinel token provider。"""
+    with ChromiumSentinelSession(
+        user_agent=user_agent,
+        sdk_url=sdk_url,
+        screen_resolution=screen_resolution,
+        headless=headless,
+        chrome_path=chrome_path,
+        timeout=timeout,
+    ) as browser:
+        return browser.token(flow=flow, device_id=device_id)
