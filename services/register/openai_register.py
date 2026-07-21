@@ -517,6 +517,7 @@ def build_sentinel_headers(
     sentinel_browser_sdk_url: str = "",
     sentinel_browser_fallback: bool = True,
     sentinel_browser_provider: ChromiumSentinelSession | None = None,
+    sentinel_browser_session: ChromiumSentinelSession | None = None,
 ) -> dict[str, str]:
     """构造注册接口需要的 Sentinel headers。
 
@@ -530,7 +531,9 @@ def build_sentinel_headers(
     """
     if sentinel_browser_enabled:
         try:
-            if sentinel_browser_provider is not None:
+            if sentinel_browser_session is not None:
+                browser_result = sentinel_browser_session.get_token(flow=flow, device_id=device_id)
+            elif sentinel_browser_provider is not None:
                 browser_result = sentinel_browser_provider.token(flow=flow, device_id=device_id)
             else:
                 browser_result = build_chromium_sentinel_token(
@@ -705,8 +708,9 @@ class PlatformRegistrar:
         self.code_verifier = ""
         self.platform_auth_code = ""
         self.sentinel_options = _sentinel_browser_options()
+        self.sentinel_browser_session: ChromiumSentinelSession | None = None
         if self.sentinel_options["sentinel_browser_enabled"]:
-            self.sentinel_options["sentinel_browser_provider"] = ChromiumSentinelSession(
+            self.sentinel_browser_session = ChromiumSentinelSession(
                 user_agent=self.profile.user_agent,
                 sdk_url=self.sentinel_options["sentinel_browser_sdk_url"] or DEFAULT_CHROMIUM_SENTINEL_SDK_URL,
                 screen_resolution=self.profile.screen_resolution,
@@ -714,14 +718,28 @@ class PlatformRegistrar:
                 chrome_path=self.sentinel_options["sentinel_browser_chrome_path"],
                 timeout=self.sentinel_options["sentinel_browser_timeout"],
             )
+            self.sentinel_options["sentinel_browser_session"] = self.sentinel_browser_session
+            self.sentinel_options["sentinel_browser_provider"] = self.sentinel_browser_session
 
-    def close(self) -> None:
-        provider = self.sentinel_options.get("sentinel_browser_provider")
-        try:
-            if provider is not None:
-                provider.close()
-        finally:
-            self.session.close()
+    def close(self, index: int | None = None) -> None:
+        if self.sentinel_browser_session is not None:
+            stats = getattr(self.sentinel_browser_session, "stats", None)
+            self.sentinel_browser_session.close()
+            if index is not None and stats and stats["token_count"]:
+                host_bytes = stats["download_bytes_by_host"]
+                hosts = ", ".join(
+                    f"{host}={size / 1024:.1f}KiB"
+                    for host, size in sorted(host_bytes.items(), key=lambda item: item[1], reverse=True)[:5]
+                ) or "无可观测响应"
+                step(
+                    index,
+                    "Sentinel 浏览器统计: "
+                    f"启动={stats['start_count']}, token={stats['token_count']}, "
+                    f"完整加载回退={stats['lightweight_fallback_count']}, "
+                    f"可观测下载={stats['download_bytes'] / 1024:.1f}KiB ({hosts})",
+                    "yellow",
+                )
+        self.session.close()
 
     def _navigate_headers(self, referer: str = "") -> dict[str, str]:
         headers = build_navigate_headers(self.profile)
@@ -962,4 +980,4 @@ def worker(index: int) -> dict:
             "artifact_path": getattr(e, "artifact_path", ""),
         }
     finally:
-        registrar.close()
+        registrar.close(index)

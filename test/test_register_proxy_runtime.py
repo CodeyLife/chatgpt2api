@@ -394,6 +394,37 @@ class RegisterProxyRuntimeTests(unittest.TestCase):
         self.assertTrue(provider.closed)
         self.assertTrue(fake_http_session.closed)
 
+    def test_sentinel_headers_prefer_reusable_chromium_session(self):
+        class BrowserSession:
+            def __init__(self):
+                self.calls = []
+
+            def get_token(self, *, flow, device_id):
+                self.calls.append({"flow": flow, "device_id": device_id})
+                return chromium_sentinel.ChromiumSentinelResult(
+                    token='{"c":"browser-c","id":"device-1","flow":"oauth_create_account"}',
+                    so_token='{"so":"browser-so","c":"browser-c"}',
+                )
+
+        browser = BrowserSession()
+        with patch.object(
+            openai_register,
+            "build_chromium_sentinel_token",
+            side_effect=AssertionError("one-shot browser provider must not be used"),
+        ):
+            headers = openai_register.build_sentinel_headers(
+                FakeSession(),
+                "device-1",
+                "oauth_create_account",
+                profile=fingerprint.DEFAULT_PROFILE,
+                sentinel_browser_enabled=True,
+                sentinel_browser_session=browser,
+            )
+
+        self.assertEqual(browser.calls, [{"flow": "oauth_create_account", "device_id": "device-1"}])
+        self.assertIn("openai-sentinel-token", headers)
+        self.assertIn("openai-sentinel-so-token", headers)
+
     def test_sentinel_headers_fallback_to_backend_when_chromium_provider_fails(self):
         with patch.object(openai_register, "build_chromium_sentinel_token", side_effect=RuntimeError("timeout")), patch.object(
             openai_register,
@@ -549,6 +580,144 @@ class RegisterProxyRuntimeTests(unittest.TestCase):
         self.assertEqual(parent.name, "chromium_tmp")
         self.assertEqual(parent.parent.name, "data")
         self.assertTrue(parent.exists())
+
+    def test_chromium_sentinel_session_reuses_one_browser_for_multiple_tokens(self):
+        class AliveProcess:
+            def poll(self):
+                return None
+
+        browser = chromium_sentinel.ChromiumSentinelSession(user_agent="test-agent")
+        starts = []
+
+        def fake_start(*, lightweight):
+            starts.append(lightweight)
+            browser._proc = AliveProcess()
+            browser._lightweight = lightweight
+            browser.start_count += 1
+
+        result = chromium_sentinel.ChromiumSentinelResult(token='{"c":"token"}')
+        with patch.object(browser, "_start", side_effect=fake_start), patch.object(
+            browser,
+            "_evaluate",
+            return_value=result,
+        ) as evaluate:
+            first = browser.get_token(flow="username_password_create", device_id="device-1")
+            second = browser.get_token(flow="oauth_create_account", device_id="device-1")
+
+        self.assertIs(first, result)
+        self.assertIs(second, result)
+        self.assertEqual(starts, [True])
+        self.assertEqual(evaluate.call_count, 2)
+        self.assertEqual(browser.stats["start_count"], 1)
+        self.assertEqual(browser.stats["token_count"], 2)
+
+    def test_chromium_sentinel_session_falls_back_to_full_page_once(self):
+        class AliveProcess:
+            def poll(self):
+                return None
+
+        browser = chromium_sentinel.ChromiumSentinelSession(user_agent="test-agent")
+        starts = []
+
+        def fake_start(*, lightweight):
+            starts.append(lightweight)
+            browser._proc = AliveProcess()
+            browser._lightweight = lightweight
+            browser.start_count += 1
+
+        result = chromium_sentinel.ChromiumSentinelResult(token='{"c":"token"}')
+        with patch.object(browser, "_start", side_effect=fake_start), patch.object(
+            browser,
+            "_evaluate",
+            side_effect=[RuntimeError("lightweight failed"), result],
+        ):
+            actual = browser.get_token(flow="oauth_create_account", device_id="device-1")
+
+        self.assertIs(actual, result)
+        self.assertEqual(starts, [True, False])
+        self.assertEqual(browser.stats["lightweight_fallback_count"], 1)
+
+    def test_chromium_sentinel_session_rebuilds_dead_full_browser_in_full_mode(self):
+        class DeadProcess:
+            def poll(self):
+                return 1
+
+        class AliveProcess:
+            def poll(self):
+                return None
+
+        browser = chromium_sentinel.ChromiumSentinelSession(user_agent="test-agent")
+        browser._proc = DeadProcess()
+        browser._lightweight = False
+        browser.start_count = 1
+        starts = []
+
+        def fake_start(*, lightweight):
+            starts.append(lightweight)
+            browser._proc = AliveProcess()
+            browser._lightweight = lightweight
+            browser.start_count += 1
+
+        result = chromium_sentinel.ChromiumSentinelResult(token='{"c":"token"}')
+        with patch.object(browser, "_start", side_effect=fake_start), patch.object(
+            browser,
+            "_evaluate",
+            return_value=result,
+        ):
+            actual = browser.get_token(flow="oauth_create_account", device_id="device-1")
+
+        self.assertIs(actual, result)
+        self.assertEqual(starts, [False])
+
+    def test_chromium_sentinel_session_tracks_download_bytes_by_host(self):
+        browser = chromium_sentinel.ChromiumSentinelSession(user_agent="test-agent")
+        browser._handle_cdp_event(
+            {
+                "method": "Network.responseReceived",
+                "params": {
+                    "requestId": "request-1",
+                    "response": {"url": "https://chatgpt.com/assets/app.js"},
+                },
+            }
+        )
+        browser._handle_cdp_event(
+            {
+                "method": "Network.loadingFinished",
+                "params": {"requestId": "request-1", "encodedDataLength": 4096},
+            }
+        )
+
+        self.assertEqual(browser.stats["download_bytes"], 4096)
+        self.assertEqual(browser.stats["download_bytes_by_host"], {"chatgpt.com": 4096})
+
+    def test_chromium_sentinel_session_close_cleans_process_and_profile(self):
+        class AliveProcess:
+            pass
+
+        browser = chromium_sentinel.ChromiumSentinelSession(user_agent="test-agent")
+        process = AliveProcess()
+        profile = Path("sentinel-profile")
+        browser._proc = process
+        browser._user_data_dir = profile
+
+        with patch.object(chromium_sentinel, "_cleanup_chrome_process_and_profile") as cleanup:
+            browser.close()
+
+        cleanup.assert_called_once_with(process, profile)
+        self.assertIsNone(browser._proc)
+        self.assertIsNone(browser._user_data_dir)
+
+    def test_platform_registrars_keep_separate_sentinel_browser_sessions(self):
+        first = openai_register.PlatformRegistrar(profile=fingerprint.DEFAULT_PROFILE)
+        second = openai_register.PlatformRegistrar(profile=fingerprint.DEFAULT_PROFILE)
+        try:
+            self.assertIsNotNone(first.sentinel_browser_session)
+            self.assertIsNotNone(second.sentinel_browser_session)
+            self.assertIsNot(first.sentinel_browser_session, second.sentinel_browser_session)
+            self.assertNotEqual(first.device_id, second.device_id)
+        finally:
+            first.close()
+            second.close()
 
     def test_new_registration_profile_matches_successful_browser_sample(self):
         profile = fingerprint.random_profile()
