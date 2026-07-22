@@ -43,6 +43,17 @@ export type Account = {
   last_health_event?: string | null;
   next_health_check_at?: string | null;
   proxy?: string | null;
+  agent_identity?: CodexAgentIdentity | null;
+};
+
+export type CodexAgentIdentity = {
+  agent_runtime_id: string;
+  agent_private_key: string;
+  account_id: string;
+  chatgpt_user_id: string;
+  email: string;
+  plan_type: string;
+  chatgpt_account_is_fedramp: boolean;
 };
 
 export type AccountImportPayload = {
@@ -51,6 +62,7 @@ export type AccountImportPayload = {
   type?: string;
   export_type?: string;
   source_type?: string;
+  agent_identity?: CodexAgentIdentity;
   [key: string]: unknown;
 };
 
@@ -81,6 +93,15 @@ type AccountMutationResponse = {
   refreshed?: number;
   relogined?: number;
   errors?: Array<{ access_token: string; error: string }>;
+};
+
+export type CodexAgentIdentityResponse = AccountMutationResponse & {
+  auth_json: {
+    auth_mode: "agent_identity";
+    agent_identity: CodexAgentIdentity;
+  };
+  account_payload: AccountImportPayload;
+  verify_warning?: string;
 };
 
 export type AccountRefreshResponse = {
@@ -407,6 +428,18 @@ export async function createAccounts(tokens: string[], accounts: AccountImportPa
   return httpRequest<AccountMutationResponse>("/api/accounts", {
     method: "POST",
     body: { tokens, accounts },
+  });
+}
+
+export async function createCodexAgentIdentity(input: {
+  access_token?: string;
+  session_json?: unknown;
+  verify_task?: boolean;
+  import_account?: boolean;
+}) {
+  return httpRequest<CodexAgentIdentityResponse>("/api/accounts/codex-agent-identity", {
+    method: "POST",
+    body: input,
   });
 }
 

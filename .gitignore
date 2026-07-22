@@ -21,6 +21,9 @@ docker-compose-local.yml
 # Environment variables
 .env
 .env.local
+auth.json
+*.auth.json
+codex-auth*.json
 
 # Database files
 *.db

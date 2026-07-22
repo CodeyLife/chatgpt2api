@@ -24,6 +24,7 @@ from api.support import (
     sanitize_sub2api_servers,
 )
 from services.account_service import account_service
+from services.codex_agent_identity_service import CodexAgentIdentityError, codex_agent_identity_service
 from services.cpa_service import cpa_config, cpa_import_service, list_remote_files
 from services.oauth_login_service import OAuthLoginError, oauth_login_service
 from services.sub2api_service import (
@@ -69,6 +70,13 @@ class AccountUpdateRequest(BaseModel):
     status: str | None = None
     quota: int | None = None
     proxy: str | None = None
+
+
+class CodexAgentIdentityRequest(BaseModel):
+    access_token: str = ""
+    session_json: Any = None
+    verify_task: bool = True
+    import_account: bool = True
 
 
 class CPAPoolCreateRequest(BaseModel):
@@ -237,6 +245,38 @@ def create_router() -> APIRouter:
             "errors": refresh_result.get("errors", []),
             "items": refresh_result.get("items", result.get("items", [])),
         }
+
+    @router.post("/api/accounts/codex-agent-identity")
+    async def create_codex_agent_identity(
+            body: CodexAgentIdentityRequest,
+            authorization: str | None = Header(default=None),
+    ):
+        require_admin(authorization)
+        access_token = (
+            str(body.access_token or "").strip()
+            or codex_agent_identity_service.extract_access_token(body.session_json)
+        )
+        if not access_token:
+            raise HTTPException(status_code=400, detail={"error": "access_token is required"})
+        try:
+            result = await run_in_threadpool(
+                codex_agent_identity_service.create_agent_identity,
+                access_token,
+                body.verify_task,
+            )
+        except CodexAgentIdentityError as exc:
+            raise HTTPException(status_code=400, detail={"error": str(exc)}) from exc
+
+        response: dict[str, Any] = {
+            "auth_json": result.auth_json,
+            "account_payload": result.account_payload,
+        }
+        if result.verify_warning:
+            response["verify_warning"] = result.verify_warning
+        if body.import_account:
+            add_result = await run_in_threadpool(account_service.add_account_items, [result.account_payload])
+            response.update(add_result)
+        return response
 
     @router.delete("/api/accounts")
     async def delete_accounts(body: AccountDeleteRequest, authorization: str | None = Header(default=None)):

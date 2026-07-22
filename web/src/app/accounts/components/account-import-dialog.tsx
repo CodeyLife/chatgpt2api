@@ -5,6 +5,7 @@ import { useRef, useState, type ChangeEvent } from "react";
 import {
   ArrowLeft,
   Copy,
+  Download,
   ExternalLink,
   FileJson,
   FileText,
@@ -30,15 +31,17 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import {
   createAccounts,
+  createCodexAgentIdentity,
   finishOAuthLogin,
   startOAuthLogin,
   type Account,
   type AccountImportPayload,
+  type CodexAgentIdentityResponse,
   type OAuthLoginStartResponse,
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
-type ImportMethod = "menu" | "token" | "session" | "codex-auth" | "account-json" | "oauth";
+type ImportMethod = "menu" | "token" | "session" | "codex-auth" | "codex-agent" | "account-json" | "oauth";
 
 type AccountImportDialogProps = {
   disabled?: boolean;
@@ -64,6 +67,20 @@ function splitTokens(value: string) {
 function getSessionAccessToken(value: unknown) {
   const token = (value as { accessToken?: unknown })?.accessToken;
   return typeof token === "string" ? token.trim() : "";
+}
+
+function parseSessionJsonOrToken(value: string) {
+  const raw = value.trim();
+  if (!raw) {
+    return { access_token: "" };
+  }
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    const token = getSessionAccessToken(parsed) || getCodexAuthAccount(parsed)?.access_token || "";
+    return { access_token: token, session_json: parsed };
+  } catch {
+    return { access_token: raw };
+  }
 }
 
 function getAccountJsonAccount(value: unknown): AccountImportPayload | null {
@@ -187,6 +204,8 @@ export function AccountImportDialog({ disabled, onImported }: AccountImportDialo
   const [tokenInput, setTokenInput] = useState("");
   const [sessionInput, setSessionInput] = useState("");
   const [codexAuthInput, setCodexAuthInput] = useState("");
+  const [codexAgentInput, setCodexAgentInput] = useState("");
+  const [codexAgentResult, setCodexAgentResult] = useState<CodexAgentIdentityResponse | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [pendingAccountJsonImport, setPendingAccountJsonImport] = useState<PendingAccountJsonImport | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -203,6 +222,8 @@ export function AccountImportDialog({ disabled, onImported }: AccountImportDialo
     setTokenInput("");
     setSessionInput("");
     setCodexAuthInput("");
+    setCodexAgentInput("");
+    setCodexAgentResult(null);
     setPendingAccountJsonImport(null);
     setConfirmOpen(false);
     setOauthEmailHint("");
@@ -398,6 +419,74 @@ export function AccountImportDialog({ disabled, onImported }: AccountImportDialo
       const message = error instanceof Error ? error.message : "Codex 认证 JSON 解析失败";
       toast.error(message);
     }
+  };
+
+  const handleCreateCodexAgentIdentity = async () => {
+    if (!codexAgentInput.trim()) {
+      toast.error("请先粘贴 Session JSON 或 accessToken");
+      return;
+    }
+
+    const payload = parseSessionJsonOrToken(codexAgentInput);
+    if (!payload.access_token) {
+      toast.error("未从输入内容中提取到 accessToken");
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      const data = await createCodexAgentIdentity({
+        ...payload,
+        verify_task: true,
+        import_account: true,
+      });
+      setCodexAgentResult(data);
+      if (data.items) {
+        onImported(data.items);
+      }
+      if (data.verify_warning) {
+        toast.warning("Agent Identity 已生成并导入账号池，但 task 验证失败");
+      } else {
+        toast.success(`Agent Identity 已生成，新增 ${data.added ?? 0} 个，跳过 ${data.skipped ?? 0} 个重复项`);
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "生成 Codex Agent Identity 失败";
+      toast.error(message);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const codexAgentAuthJsonText = codexAgentResult
+    ? JSON.stringify(codexAgentResult.auth_json, null, 2)
+    : "";
+
+  const handleCopyCodexAgentAuthJson = async () => {
+    if (!codexAgentAuthJsonText) {
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(codexAgentAuthJsonText);
+      toast.success("auth.json 已复制到剪贴板");
+    } catch {
+      toast.error("复制失败，请手动选择并复制");
+    }
+  };
+
+  const handleDownloadCodexAgentAuthJson = () => {
+    if (!codexAgentAuthJsonText || typeof window === "undefined") {
+      return;
+    }
+    const blob = new Blob([`${codexAgentAuthJsonText}\n`], { type: "application/json;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    const email = codexAgentResult?.auth_json.agent_identity.email || "codex";
+    link.href = url;
+    link.download = `${email.replace(/[^A-Za-z0-9._-]+/g, "-")}.auth.json`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
   };
 
   const handleAccountJsonSelected = async (event: ChangeEvent<HTMLInputElement>) => {
@@ -700,14 +789,88 @@ export function AccountImportDialog({ disabled, onImported }: AccountImportDialo
             返回导入方式
           </button>
           <div className="space-y-2">
-            <label className="text-sm font-medium text-stone-700">Codex 认证 JSON</label>
+            <label className="text-sm font-medium text-stone-700">包含 access_token 的 Codex 账号 JSON</label>
             <Textarea
-              placeholder='粘贴包含 "access_token"、"refresh_token"、"id_token" 的 Codex 认证 JSON...'
+              placeholder='粘贴包含 "access_token"、"refresh_token"、"id_token" 的 Codex 账号 JSON；agent-only auth.json 不能在这里导入。'
               value={codexAuthInput}
               onChange={(event) => setCodexAuthInput(event.target.value)}
               className="min-h-64 resize-none rounded-xl border-stone-200 font-mono text-xs"
             />
           </div>
+        </div>
+      );
+    }
+
+    if (method === "codex-agent") {
+      const identity = codexAgentResult?.auth_json.agent_identity;
+      return (
+        <div className="space-y-4">
+          <button
+            type="button"
+            onClick={() => setMethod("menu")}
+            className="inline-flex items-center gap-1 text-sm text-stone-500 transition hover:text-stone-800"
+          >
+            <ArrowLeft className="size-4" />
+            返回导入方式
+          </button>
+          <div className="rounded-2xl border border-stone-200 bg-stone-50 p-4 text-sm leading-6 text-stone-600">
+            粘贴 chatgpt.com 的 session JSON 或纯 accessToken。生成后会用原 accessToken 导入账号池，并保存完整 agent_identity 元信息；当前对话和生图请求仍走原账号池 token 链路。
+          </div>
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-stone-700">Session JSON / accessToken</label>
+            <Textarea
+              placeholder='粘贴包含 "accessToken" 的 Session JSON，或直接粘贴 accessToken...'
+              value={codexAgentInput}
+              onChange={(event) => {
+                setCodexAgentInput(event.target.value);
+                setCodexAgentResult(null);
+              }}
+              className="min-h-44 resize-none rounded-xl border-stone-200 font-mono text-xs"
+            />
+          </div>
+          {identity ? (
+            <div className="space-y-3 rounded-2xl border border-stone-200 bg-white p-4">
+              <div className="grid gap-2 text-sm text-stone-600 sm:grid-cols-2">
+                <div>
+                  <span className="text-stone-400">邮箱</span>
+                  <div className="font-medium text-stone-900">{identity.email || "-"}</div>
+                </div>
+                <div>
+                  <span className="text-stone-400">套餐</span>
+                  <div className="font-medium text-stone-900">{identity.plan_type || "-"}</div>
+                </div>
+                <div className="sm:col-span-2">
+                  <span className="text-stone-400">agent_runtime_id</span>
+                  <div className="break-all font-mono text-xs text-stone-900">{identity.agent_runtime_id}</div>
+                </div>
+              </div>
+              {codexAgentResult?.verify_warning ? (
+                <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm leading-6 text-amber-900">
+                  task 验证失败，但 auth.json 已生成并导入账号池：{codexAgentResult.verify_warning}
+                </div>
+              ) : null}
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="rounded-xl border-stone-200 bg-white"
+                  onClick={() => void handleCopyCodexAgentAuthJson()}
+                >
+                  <Copy className="size-4" />
+                  复制 auth.json
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="rounded-xl border-stone-200 bg-white"
+                  onClick={handleDownloadCodexAgentAuthJson}
+                >
+                  <Download className="size-4" />
+                  下载 auth.json
+                </Button>
+              </div>
+            </div>
+          ) : null}
         </div>
       );
     }
@@ -734,9 +897,15 @@ export function AccountImportDialog({ disabled, onImported }: AccountImportDialo
         />
         <MethodCard
           title="导入 Codex 认证 JSON"
-          description="粘贴 Codex 认证 JSON，导入后账号来源标记为 codex。"
+          description="粘贴包含 access_token 的 Codex 账号 JSON，导入后账号来源标记为 codex。"
           icon={FileJson}
           onClick={() => setMethod("codex-auth")}
+        />
+        <MethodCard
+          title="生成 Codex Agent Identity"
+          description="用 Session JSON 或 accessToken 注册 Codex CLI agent identity，并把账号导入本地号池。"
+          icon={KeyRound}
+          onClick={() => setMethod("codex-agent")}
         />
         <MethodCard
           title="导入账号 JSON 文件"
@@ -792,6 +961,8 @@ export function AccountImportDialog({ disabled, onImported }: AccountImportDialo
                     ? "导入 Session JSON"
                     : method === "codex-auth"
                       ? "导入 Codex 认证 JSON"
+                    : method === "codex-agent"
+                      ? "生成 Codex Agent Identity"
                     : method === "oauth"
                       ? "OAuth 登录已有账号"
                       : "导入账号 JSON"}
@@ -804,7 +975,9 @@ export function AccountImportDialog({ disabled, onImported }: AccountImportDialo
                   : method === "session"
                     ? "粘贴完整 Session JSON，系统会自动提取 accessToken。"
                     : method === "codex-auth"
-                      ? "粘贴 Codex 认证 JSON，系统会按 codex 来源导入。"
+                      ? "粘贴包含 access_token 的 Codex 账号 JSON，系统会按 codex 来源导入。"
+                    : method === "codex-agent"
+                      ? "注册 Codex CLI agent identity，保存 auth.json 并导入账号池。"
                     : method === "oauth"
                       ? "用浏览器跑一遍 OpenAI 标准 OAuth，拿回 refresh_token 后系统会自动续期。"
                       : "支持读取本项目导出的单账号对象或全部账号数组，并在提交前做数量确认。"}
@@ -850,6 +1023,16 @@ export function AccountImportDialog({ disabled, onImported }: AccountImportDialo
               >
                 {isSubmitting ? <LoaderCircle className="size-4 animate-spin" /> : null}
                 导入 JSON
+              </Button>
+            ) : null}
+            {method === "codex-agent" ? (
+              <Button
+                className="h-10 rounded-xl bg-stone-950 px-5 text-white hover:bg-stone-800"
+                onClick={() => void handleCreateCodexAgentIdentity()}
+                disabled={footerDisabled}
+              >
+                {isSubmitting ? <LoaderCircle className="size-4 animate-spin" /> : null}
+                生成并导入
               </Button>
             ) : null}
             {method === "oauth" ? (
