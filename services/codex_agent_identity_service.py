@@ -18,7 +18,6 @@ from cryptography.hazmat.primitives.serialization import (
 )
 
 from services.account_service import AccountService
-from utils.helper import anonymize_token
 
 
 AUTHAPI_BASE = "https://auth.openai.com/api/accounts"
@@ -61,6 +60,81 @@ def extract_access_token(value: object) -> str:
     return str(token or "").strip()
 
 
+def _clean(value: object) -> str:
+    return str(value or "").strip()
+
+
+def _as_dict(value: object) -> dict[str, Any]:
+    if isinstance(value, str):
+        try:
+            value = json.loads(value.strip())
+        except Exception:
+            return {}
+    return value if isinstance(value, dict) else {}
+
+
+def _first_clean(*values: object) -> str:
+    for value in values:
+        cleaned = _clean(value)
+        if cleaned:
+            return cleaned
+    return ""
+
+
+def _session_metadata_claims(metadata: object) -> dict[str, Any]:
+    data = _as_dict(metadata)
+    account = data.get("account") if isinstance(data.get("account"), dict) else {}
+    user = data.get("user") if isinstance(data.get("user"), dict) else {}
+    profile = data.get("profile") if isinstance(data.get("profile"), dict) else {}
+    id_payload = AccountService._decode_jwt_payload(
+        _first_clean(data.get("id_token"), data.get("idToken"))
+    )
+
+    plan_obj = account.get("plan") if isinstance(account.get("plan"), dict) else {}
+    plan_type = _first_clean(
+        data.get("plan_type"),
+        data.get("planType"),
+        data.get("account_plan"),
+        account.get("plan_type"),
+        account.get("planType"),
+        plan_obj.get("type"),
+        plan_obj.get("name"),
+    )
+
+    return {
+        "account_id": _first_clean(
+            data.get("account_id"),
+            data.get("accountId"),
+            data.get("chatgpt_account_id"),
+            account.get("account_id"),
+            account.get("accountId"),
+            account.get("id"),
+        ),
+        "chatgpt_user_id": _first_clean(
+            data.get("chatgpt_user_id"),
+            data.get("user_id"),
+            data.get("userId"),
+            user.get("id"),
+            user.get("user_id"),
+            id_payload.get("sub"),
+        ),
+        "email": _first_clean(
+            data.get("email"),
+            user.get("email"),
+            profile.get("email"),
+            id_payload.get("email"),
+        ),
+        "plan_type": plan_type or "free",
+        "exp": data.get("exp") or data.get("expires_at") or id_payload.get("exp"),
+        "iat": data.get("iat") or data.get("issued_at") or id_payload.get("iat"),
+        "chatgpt_account_is_fedramp": bool(
+            data.get("chatgpt_account_is_fedramp")
+            or account.get("chatgpt_account_is_fedramp")
+            or account.get("is_fedramp")
+        ),
+    }
+
+
 def access_token_claims(access_token: str) -> dict[str, Any]:
     payload = AccountService._decode_jwt_payload(access_token)
     auth_info = payload.get("https://api.openai.com/auth")
@@ -74,6 +148,27 @@ def access_token_claims(access_token: str) -> dict[str, Any]:
         "plan_type": str(auth_info.get("chatgpt_plan_type") or "free").strip() or "free",
         "exp": payload.get("exp"),
         "iat": payload.get("iat"),
+        "chatgpt_account_is_fedramp": bool(auth_info.get("chatgpt_account_is_fedramp")),
+    }
+
+
+def _merge_claims(token_claims: dict[str, Any], metadata_claims: dict[str, Any]) -> dict[str, Any]:
+    token_has_account_claims = bool(token_claims.get("account_id") or token_claims.get("chatgpt_user_id"))
+    return {
+        "account_id": _first_clean(token_claims.get("account_id"), metadata_claims.get("account_id")),
+        "chatgpt_user_id": _first_clean(token_claims.get("chatgpt_user_id"), metadata_claims.get("chatgpt_user_id")),
+        "email": _first_clean(token_claims.get("email"), metadata_claims.get("email")),
+        "plan_type": (
+            _first_clean(token_claims.get("plan_type"), metadata_claims.get("plan_type"))
+            if token_has_account_claims
+            else _first_clean(metadata_claims.get("plan_type"), token_claims.get("plan_type")) or "free"
+        ),
+        "exp": token_claims.get("exp") if token_claims.get("exp") is not None else metadata_claims.get("exp"),
+        "iat": token_claims.get("iat") if token_claims.get("iat") is not None else metadata_claims.get("iat"),
+        "chatgpt_account_is_fedramp": bool(
+            token_claims.get("chatgpt_account_is_fedramp")
+            or metadata_claims.get("chatgpt_account_is_fedramp")
+        ),
     }
 
 
@@ -184,21 +279,21 @@ def generate_auth_json(agent_runtime_id: str, private_key_pkcs8_b64: str, claims
             "chatgpt_user_id": str(claims.get("chatgpt_user_id") or ""),
             "email": str(claims.get("email") or ""),
             "plan_type": str(claims.get("plan_type") or "free"),
-            "chatgpt_account_is_fedramp": False,
+            "chatgpt_account_is_fedramp": bool(claims.get("chatgpt_account_is_fedramp")),
         },
     }
 
 
-def create_agent_identity(access_token: str, verify_task: bool = True) -> CodexAgentIdentityResult:
+def create_agent_identity(
+        access_token: str,
+        verify_task: bool = True,
+        metadata: object | None = None,
+) -> CodexAgentIdentityResult:
     access_token = str(access_token or "").strip()
     if not access_token:
         raise CodexAgentIdentityError("access_token is required")
 
-    claims = access_token_claims(access_token)
-    if not claims["account_id"] or not claims["chatgpt_user_id"]:
-        raise CodexAgentIdentityError(
-            f"JWT missing required account claims for token {anonymize_token(access_token)}"
-        )
+    claims = _merge_claims(access_token_claims(access_token), _session_metadata_claims(metadata))
 
     private_key_b64, public_key_ssh = generate_ed25519_keypair()
     agent_runtime_id = register_agent(access_token, public_key_ssh)
@@ -213,7 +308,7 @@ def create_agent_identity(access_token: str, verify_task: bool = True) -> CodexA
     account_payload = {
         "access_token": access_token,
         "source_type": "codex",
-        "export_type": "codex",
+        "export_type": "codex_agent_identity",
         "email": claims["email"],
         "account_id": claims["account_id"],
         "user_id": claims["chatgpt_user_id"],

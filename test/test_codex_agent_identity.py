@@ -134,6 +134,35 @@ class CodexAgentIdentityServiceTests(unittest.TestCase):
         self.assertEqual(result.account_payload["agent_identity"]["agent_runtime_id"], "runtime_123")
         self.assertEqual(result.verify_warning, "task failed")
 
+    def test_create_agent_identity_allows_opaque_token_and_uses_metadata(self) -> None:
+        with mock.patch("services.codex_agent_identity_service.register_agent", return_value="runtime_123"):
+            result = create_agent_identity(
+                "token:4183315650",
+                verify_task=False,
+                metadata={
+                    "email": "new@example.com",
+                    "account_id": "acct_123",
+                    "user_id": "user_123",
+                    "plan_type": "plus",
+                },
+            )
+
+        self.assertEqual(result.account_payload["access_token"], "token:4183315650")
+        self.assertEqual(result.account_payload["export_type"], "codex_agent_identity")
+        self.assertEqual(result.account_payload["email"], "new@example.com")
+        self.assertEqual(result.account_payload["account_id"], "acct_123")
+        self.assertEqual(result.account_payload["user_id"], "user_123")
+        self.assertEqual(result.auth_json["agent_identity"]["plan_type"], "plus")
+
+    def test_create_agent_identity_allows_missing_account_metadata(self) -> None:
+        with mock.patch("services.codex_agent_identity_service.register_agent", return_value="runtime_123"):
+            result = create_agent_identity("token:4183315650", verify_task=False)
+
+        self.assertEqual(result.account_payload["access_token"], "token:4183315650")
+        self.assertEqual(result.account_payload["account_id"], "")
+        self.assertEqual(result.account_payload["user_id"], "")
+        self.assertEqual(result.account_payload["agent_identity"]["agent_runtime_id"], "runtime_123")
+
     def test_account_import_preserves_agent_identity_and_plan_type_rule(self) -> None:
         token = make_jwt(access_token_payload())
         service = AccountService(MemoryStorage())
@@ -195,6 +224,32 @@ class CodexAgentIdentityApiTests(unittest.TestCase):
         self.assertEqual(payload["account_payload"]["agent_identity"]["agent_runtime_id"], "runtime_123")
         self.assertEqual(payload["added"], 1)
         self.assertEqual(self.service.get_account(token)["agent_identity"]["agent_runtime_id"], "runtime_123")
+
+    def test_codex_agent_identity_accepts_opaque_token_session_json_and_imports_account(self) -> None:
+        token = "token:4183315650"
+
+        with (
+            mock.patch("services.codex_agent_identity_service.register_agent", return_value="runtime_123"),
+            mock.patch("services.codex_agent_identity_service.register_task", return_value="task_123"),
+        ):
+            response = self.client.post(
+                "/api/accounts/codex-agent-identity",
+                headers=AUTH_HEADERS,
+                json={
+                    "session_json": {
+                        "accessToken": token,
+                        "user": {"email": "new@example.com", "id": "user_123"},
+                        "account": {"account_id": "acct_123", "plan_type": "plus"},
+                    }
+                },
+            )
+
+        self.assertEqual(response.status_code, 200, response.text)
+        payload = response.json()
+        self.assertEqual(payload["account_payload"]["export_type"], "codex_agent_identity")
+        self.assertEqual(payload["account_payload"]["email"], "new@example.com")
+        self.assertEqual(payload["account_payload"]["account_id"], "acct_123")
+        self.assertEqual(self.service.get_account(token)["agent_identity"]["chatgpt_user_id"], "user_123")
 
     def test_codex_agent_identity_redacts_agent_registration_errors(self) -> None:
         token = make_jwt(access_token_payload())

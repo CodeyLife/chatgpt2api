@@ -344,6 +344,8 @@ type SettingsStore = {
   setRegisterNewAccountWarmupMinutes: (value: string) => void;
   setRegisterNewAccountVerifyDelaySeconds: (value: string) => void;
   setRegisterNewAccountMaxVerifyWorkers: (value: string) => void;
+  setRegisterCodexAgentIdentityEnabled: (value: boolean) => void;
+  setRegisterCodexAgentIdentityVerifyTask: (value: boolean) => void;
   setRegisterMailField: (key: "request_timeout" | "wait_timeout" | "wait_interval", value: string) => void;
   setRegisterMailApiUseRegisterProxy: (value: boolean) => void;
   addRegisterProvider: () => void;
@@ -969,6 +971,14 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     set((state) => state.registerConfig ? { registerConfig: { ...state.registerConfig, new_account_max_verify_workers: Number(value) || 0 } } : {});
   },
 
+  setRegisterCodexAgentIdentityEnabled: (value) => {
+    set((state) => state.registerConfig ? { registerConfig: { ...state.registerConfig, codex_agent_identity_enabled: value } } : {});
+  },
+
+  setRegisterCodexAgentIdentityVerifyTask: (value) => {
+    set((state) => state.registerConfig ? { registerConfig: { ...state.registerConfig, codex_agent_identity_verify_task: value } } : {});
+  },
+
   setRegisterMailField: (key, value) => {
     set((state) => state.registerConfig ? {
       registerConfig: {
@@ -1048,6 +1058,8 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
         sentinel_browser_chrome_path: registerConfig.sentinel_browser_chrome_path || "",
         sentinel_browser_sdk_url: registerConfig.sentinel_browser_sdk_url || "",
         sentinel_browser_fallback: registerConfig.sentinel_browser_fallback !== false,
+        codex_agent_identity_enabled: Boolean(registerConfig.codex_agent_identity_enabled),
+        codex_agent_identity_verify_task: registerConfig.codex_agent_identity_verify_task !== false,
         new_account_warmup_minutes: Math.max(0, Number(registerConfig.new_account_warmup_minutes) || 0),
         new_account_verify_delay_seconds: Math.max(0, Number(registerConfig.new_account_verify_delay_seconds) || 0),
         new_account_max_verify_workers: Math.max(1, Number(registerConfig.new_account_max_verify_workers) || 2),
@@ -1087,6 +1099,8 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
           sentinel_browser_chrome_path: registerConfig.sentinel_browser_chrome_path || "",
           sentinel_browser_sdk_url: registerConfig.sentinel_browser_sdk_url || "",
           sentinel_browser_fallback: registerConfig.sentinel_browser_fallback !== false,
+          codex_agent_identity_enabled: Boolean(registerConfig.codex_agent_identity_enabled),
+          codex_agent_identity_verify_task: registerConfig.codex_agent_identity_verify_task !== false,
           new_account_warmup_minutes: Math.max(0, Number(registerConfig.new_account_warmup_minutes) || 0),
           new_account_verify_delay_seconds: Math.max(0, Number(registerConfig.new_account_verify_delay_seconds) || 0),
           new_account_max_verify_workers: Math.max(1, Number(registerConfig.new_account_max_verify_workers) || 2),

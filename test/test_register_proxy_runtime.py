@@ -1,4 +1,5 @@
 import unittest
+from types import SimpleNamespace
 from tempfile import TemporaryDirectory
 from pathlib import Path
 from unittest.mock import patch
@@ -298,6 +299,135 @@ class RegisterProxyRuntimeTests(unittest.TestCase):
         self.assertEqual(snapshot["new_account_warmup_minutes"], 15)
         self.assertEqual(snapshot["new_account_verify_delay_seconds"], 45)
         self.assertEqual(snapshot["new_account_max_verify_workers"], 3)
+
+    def test_register_service_normalizes_codex_agent_identity_settings(self):
+        with TemporaryDirectory() as tmp:
+            service = RegisterService(Path(tmp) / "register.json")
+            snapshot = service.update(
+                {
+                    "codex_agent_identity_enabled": "yes",
+                    "codex_agent_identity_verify_task": "0",
+                }
+            )
+
+        self.assertTrue(snapshot["codex_agent_identity_enabled"])
+        self.assertFalse(snapshot["codex_agent_identity_verify_task"])
+
+    def test_worker_saves_registered_account_with_codex_agent_identity_when_enabled(self):
+        saved_items = []
+
+        class FakeRegistrar:
+            def __init__(self, proxy):
+                self.proxy = proxy
+
+            def register(self, index):
+                return {
+                    "email": "new@example.com",
+                    "password": "password",
+                    "access_token": "access-token",
+                    "refresh_token": "refresh-token",
+                    "id_token": "id-token",
+                    "source_type": "web",
+                    "device_id": "device-1",
+                    "fingerprint_profile": "profile-1",
+                }
+
+            def close(self, index):
+                pass
+
+        class FakeAccountService:
+            def add_account_items(self, items):
+                saved_items.extend(items)
+                return {"added": len(items), "skipped": 0, "items": items}
+
+            def verify_new_accounts(self, tokens):
+                return {"refreshed": 1, "errors": [], "items": saved_items}
+
+        identity_result = SimpleNamespace(
+            account_payload={
+                "access_token": "access-token",
+                "source_type": "codex",
+                "export_type": "codex_agent_identity",
+                "email": "new@example.com",
+                "account_id": "acct_123",
+                "user_id": "user_123",
+                "plan_type": "plus",
+                "agent_identity": {
+                    "agent_runtime_id": "runtime_123",
+                    "agent_private_key": "private-key",
+                },
+            },
+            verify_warning="",
+        )
+
+        with (
+            patch.object(openai_register, "config", {**openai_register.config, "codex_agent_identity_enabled": True, "codex_agent_identity_verify_task": False}),
+            patch.object(openai_register, "PlatformRegistrar", FakeRegistrar),
+            patch.object(openai_register, "account_service", FakeAccountService()),
+            patch.object(openai_register.codex_agent_identity_service, "create_agent_identity", return_value=identity_result) as create_identity,
+        ):
+            result = openai_register.worker(1)
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(saved_items[0]["source_type"], "codex")
+        self.assertEqual(saved_items[0]["export_type"], "codex_agent_identity")
+        self.assertEqual(saved_items[0]["refresh_token"], "refresh-token")
+        self.assertEqual(saved_items[0]["agent_identity"]["agent_runtime_id"], "runtime_123")
+        create_identity.assert_called_once()
+        args, kwargs = create_identity.call_args
+        self.assertEqual(args, ("access-token",))
+        self.assertFalse(kwargs["verify_task"])
+        self.assertEqual(kwargs["metadata"]["email"], "new@example.com")
+        self.assertEqual(kwargs["metadata"]["id_token"], "id-token")
+
+    def test_worker_preserves_registered_account_when_codex_agent_identity_fails(self):
+        saved_items = []
+
+        class FakeRegistrar:
+            def __init__(self, proxy):
+                self.proxy = proxy
+
+            def register(self, index):
+                return {
+                    "email": "new@example.com",
+                    "password": "password",
+                    "access_token": "access-token",
+                    "refresh_token": "refresh-token",
+                    "id_token": "id-token",
+                    "source_type": "web",
+                    "device_id": "device-1",
+                    "fingerprint_profile": "profile-1",
+                }
+
+            def close(self, index):
+                pass
+
+        class FakeAccountService:
+            def add_account_items(self, items):
+                saved_items.extend(items)
+                return {"added": len(items), "skipped": 0, "items": items}
+
+            def verify_new_accounts(self, tokens):
+                return {"refreshed": 1, "errors": [], "items": saved_items}
+
+        with (
+            patch.object(openai_register, "config", {**openai_register.config, "codex_agent_identity_enabled": True, "codex_agent_identity_verify_task": False}),
+            patch.object(openai_register, "PlatformRegistrar", FakeRegistrar),
+            patch.object(openai_register, "account_service", FakeAccountService()),
+            patch.object(openai_register.codex_agent_identity_service, "create_agent_identity", side_effect=RuntimeError("authapi unavailable")) as create_identity,
+        ):
+            result = openai_register.worker(1)
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(saved_items[0]["source_type"], "web")
+        self.assertEqual(saved_items[0]["access_token"], "access-token")
+        self.assertEqual(saved_items[0]["refresh_token"], "refresh-token")
+        self.assertEqual(saved_items[0]["codex_agent_identity_error"], "authapi unavailable")
+        create_identity.assert_called_once()
+        args, kwargs = create_identity.call_args
+        self.assertEqual(args, ("access-token",))
+        self.assertFalse(kwargs["verify_task"])
+        self.assertEqual(kwargs["metadata"]["email"], "new@example.com")
 
     def test_sentinel_headers_can_use_chromium_sdk_provider(self):
         class SentinelSession:

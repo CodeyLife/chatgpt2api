@@ -60,6 +60,49 @@ class Sub2APIImportTests(unittest.TestCase):
             ],
         )
 
+    def test_export_preserves_agent_identity_for_import(self) -> None:
+        payload = sub2api_service._account_import_payload(
+            {
+                "id": "account-identity",
+                "credentials": {
+                    "access_token": "access-token",
+                    "email": "agent@example.com",
+                    "plan_type": "plus",
+                    "agent_identity": {
+                        "agent_runtime_id": "runtime_123",
+                        "agent_private_key": "private-key",
+                        "account_id": "acct_123",
+                        "chatgpt_user_id": "user_123",
+                        "email": "agent@example.com",
+                        "plan_type": "plus",
+                        "chatgpt_account_is_fedramp": False,
+                    },
+                },
+            }
+        )
+
+        self.assertEqual(payload["access_token"], "access-token")
+        self.assertEqual(payload["source_type"], "codex")
+        self.assertEqual(payload["export_type"], "codex_agent_identity")
+        self.assertEqual(payload["plan_type"], "plus")
+        self.assertEqual(payload["agent_identity"]["agent_runtime_id"], "runtime_123")
+
+    def test_export_preserves_agent_identity_from_auth_json_for_import(self) -> None:
+        payload = sub2api_service._account_import_payload(
+            {
+                "access_token": "access-token",
+                "auth_mode": "agent_identity",
+                "agent_identity": {
+                    "agent_runtime_id": "runtime_123",
+                    "agent_private_key": "private-key",
+                },
+            }
+        )
+
+        self.assertEqual(payload["access_token"], "access-token")
+        self.assertEqual(payload["export_type"], "codex_agent_identity")
+        self.assertEqual(payload["agent_identity"]["agent_private_key"], "private-key")
+
 
 if __name__ == "__main__":
     unittest.main()

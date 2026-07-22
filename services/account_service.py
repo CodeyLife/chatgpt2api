@@ -257,8 +257,9 @@ class AccountService:
         normalized = dict(item)
         normalized.pop("accessToken", None)
         normalized["access_token"] = access_token
-        if str(normalized.get("type") or "").strip().lower() == "codex":
-            normalized["export_type"] = "codex"
+        export_type = str(normalized.get("type") or "").strip().lower()
+        if export_type in {"codex", "codex_agent_identity"}:
+            normalized["export_type"] = export_type
             normalized.pop("type", None)
         normalized["type"] = normalized.get("type") or "free"
         normalized["status"] = normalized.get("status") or "正常"
@@ -268,7 +269,7 @@ class AccountService:
         normalized["user_id"] = normalized.get("user_id") or None
         normalized["proxy"] = str(normalized.get("proxy") or "").strip()
         source_type = normalized.get("source_type")
-        if not source_type and str(normalized.get("export_type") or "").strip().lower() == "codex":
+        if not source_type and str(normalized.get("export_type") or "").strip().lower() in {"codex", "codex_agent_identity"}:
             source_type = "codex"
         normalized["source_type"] = self._normalize_source_type(source_type)
         limits_progress = normalized.get("limits_progress")
@@ -1237,9 +1238,10 @@ class AccountService:
         payload = dict(item)
         payload.pop("accessToken", None)
         payload["access_token"] = access_token
-        # CPA/Codex 导出文件里的 `type=codex` 是导出格式，不是号池套餐类型。
-        if str(payload.get("type") or "").strip().lower() == "codex":
-            payload["export_type"] = "codex"
+        # CPA/Codex 导出文件里的 `type=codex*` 是导出格式，不是号池套餐类型。
+        export_type = str(payload.get("type") or "").strip().lower()
+        if export_type in {"codex", "codex_agent_identity"}:
+            payload["export_type"] = export_type
             payload["source_type"] = "codex"
             payload.pop("type", None)
         if str(payload.get("export_type") or "").strip().lower() == "codex":
@@ -1788,7 +1790,7 @@ class AccountService:
                 pass
         return result
 
-    def build_export_items(self, access_tokens: list[str] | None = None) -> list[dict[str, str]]:
+    def build_export_items(self, access_tokens: list[str] | None = None) -> list[dict[str, Any]]:
         target_tokens = set(token for token in (access_tokens or []) if token)
         with self._lock:
             accounts = [
@@ -1797,11 +1799,33 @@ class AccountService:
                 if not target_tokens or str(item.get("access_token") or "") in target_tokens
             ]
 
-        items: list[dict[str, str]] = []
+        items: list[dict[str, Any]] = []
         for account in accounts:
             access_token = str(account.get("access_token") or "").strip()
             refresh_token = str(account.get("refresh_token") or "").strip()
             id_token = str(account.get("id_token") or "").strip()
+            agent_identity = account.get("agent_identity")
+            if isinstance(agent_identity, dict) and agent_identity.get("agent_runtime_id") and agent_identity.get("agent_private_key"):
+                item = {
+                    "type": "codex_agent_identity",
+                    "auth_mode": "agent_identity",
+                    "email": str(account.get("email") or agent_identity.get("email") or "").strip(),
+                    "account_id": str(account.get("account_id") or agent_identity.get("account_id") or "").strip(),
+                    "user_id": str(account.get("user_id") or agent_identity.get("chatgpt_user_id") or "").strip(),
+                    "plan_type": str(account.get("plan_type") or agent_identity.get("plan_type") or account.get("type") or "free"),
+                    "access_token": access_token,
+                    "source_type": "codex",
+                    "export_type": "codex_agent_identity",
+                    "agent_identity": dict(agent_identity),
+                }
+                if refresh_token:
+                    item["refresh_token"] = refresh_token
+                if id_token:
+                    item["id_token"] = id_token
+                if password := str(account.get("password") or "").strip():
+                    item["password"] = password
+                items.append(item)
+                continue
             if not access_token or not refresh_token or not id_token:
                 continue
 

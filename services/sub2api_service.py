@@ -9,6 +9,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 from threading import Lock
+from typing import Any
 
 from curl_cffi.requests import Session
 
@@ -244,17 +245,35 @@ def _extract_access_token(credentials: object) -> str:
     return ""
 
 
+def _extract_agent_identity(credentials: object) -> dict | None:
+    if not isinstance(credentials, dict):
+        return None
+    identity = credentials.get("agent_identity")
+    if not isinstance(identity, dict):
+        auth_json = credentials.get("auth_json") if isinstance(credentials.get("auth_json"), dict) else credentials
+        identity = auth_json.get("agent_identity") if isinstance(auth_json, dict) else None
+    if not isinstance(identity, dict):
+        return None
+    if not _clean(identity.get("agent_runtime_id")) or not _clean(identity.get("agent_private_key")):
+        return None
+    return dict(identity)
+
+
 def _account_import_payload(account: dict) -> dict | None:
     """Build the complete local account payload from a Sub2API export record."""
-    credentials = account.get("credentials") if isinstance(account.get("credentials"), dict) else {}
+    credentials = account.get("credentials") if isinstance(account.get("credentials"), dict) else account
     access_token = _extract_access_token(credentials)
     if not access_token:
         return None
 
-    payload: dict[str, str] = {
+    payload: dict[str, Any] = {
         "access_token": access_token,
         "source_type": "codex",
     }
+    agent_identity = _extract_agent_identity(credentials)
+    if agent_identity:
+        payload["agent_identity"] = agent_identity
+        payload["export_type"] = "codex_agent_identity"
     aliases = {
         "refresh_token": ("refresh_token", "refreshToken"),
         "id_token": ("id_token", "idToken"),
@@ -262,6 +281,8 @@ def _account_import_payload(account: dict) -> dict | None:
         "account_id": ("account_id", "chatgpt_account_id"),
         "device_id": ("device_id", "deviceId"),
         "fingerprint_profile": ("fingerprint_profile", "fingerprintProfile"),
+        "plan_type": ("plan_type", "planType"),
+        "user_id": ("user_id", "chatgpt_user_id"),
     }
     for target, keys in aliases.items():
         value = next((_clean(credentials.get(key)) for key in keys if _clean(credentials.get(key))), "")

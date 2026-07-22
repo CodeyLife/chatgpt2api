@@ -27,6 +27,8 @@ export function RegisterCard() {
   const setNewAccountWarmupMinutes = useSettingsStore((state) => state.setRegisterNewAccountWarmupMinutes);
   const setNewAccountVerifyDelaySeconds = useSettingsStore((state) => state.setRegisterNewAccountVerifyDelaySeconds);
   const setNewAccountMaxVerifyWorkers = useSettingsStore((state) => state.setRegisterNewAccountMaxVerifyWorkers);
+  const setCodexAgentIdentityEnabled = useSettingsStore((state) => state.setRegisterCodexAgentIdentityEnabled);
+  const setCodexAgentIdentityVerifyTask = useSettingsStore((state) => state.setRegisterCodexAgentIdentityVerifyTask);
   const setMailField = useSettingsStore((state) => state.setRegisterMailField);
   const setMailApiUseRegisterProxy = useSettingsStore((state) => state.setRegisterMailApiUseRegisterProxy);
   const addProvider = useSettingsStore((state) => state.addRegisterProvider);
@@ -148,6 +150,23 @@ export function RegisterCard() {
               <label className="text-sm text-stone-700">新号复查并发</label>
               <Input value={String(config.new_account_max_verify_workers ?? 2)} onChange={(event) => setNewAccountMaxVerifyWorkers(event.target.value)} className="h-10 rounded-xl border-stone-200 bg-white" disabled={config.enabled} />
             </div>
+          </div>
+
+          <div className="grid gap-3 rounded-xl border border-stone-200 bg-stone-50 p-3 md:grid-cols-2">
+            <label className="flex items-start gap-3 text-sm text-stone-700">
+              <Checkbox checked={Boolean(config.codex_agent_identity_enabled)} onCheckedChange={(checked) => setCodexAgentIdentityEnabled(Boolean(checked))} disabled={config.enabled} />
+              <span>
+                <span className="block font-medium text-stone-800">注册后生成 Codex Agent Identity</span>
+                <span className="mt-1 block text-xs leading-5 text-stone-500">保存为 codex 来源账号，并额外保存 agent_identity；当前请求链路不会使用它。</span>
+              </span>
+            </label>
+            <label className="flex items-start gap-3 text-sm text-stone-700">
+              <Checkbox checked={config.codex_agent_identity_verify_task !== false} onCheckedChange={(checked) => setCodexAgentIdentityVerifyTask(Boolean(checked))} disabled={config.enabled || !config.codex_agent_identity_enabled} />
+              <span>
+                <span className="block font-medium text-stone-800">生成后验证 task 注册</span>
+                <span className="mt-1 block text-xs leading-5 text-stone-500">验证失败会保留 warning，不会用于请求调度。</span>
+              </span>
+            </label>
           </div>
 
           <div className="space-y-3 border-t border-stone-200 pt-3">

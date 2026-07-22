@@ -145,7 +145,7 @@ def _safe_export_name(value: str, fallback: str) -> str:
     return (clean or fallback)[:80]
 
 
-def _account_zip_bytes(items: list[dict[str, str]]) -> bytes:
+def _account_zip_bytes(items: list[dict[str, Any]]) -> bytes:
     buf = io.BytesIO()
     used_names: set[str] = set()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as archive:
@@ -263,6 +263,7 @@ def create_router() -> APIRouter:
                 codex_agent_identity_service.create_agent_identity,
                 access_token,
                 body.verify_task,
+                body.session_json,
             )
         except CodexAgentIdentityError as exc:
             raise HTTPException(status_code=400, detail={"error": str(exc)}) from exc
@@ -351,7 +352,7 @@ def create_router() -> APIRouter:
         if not items:
             raise HTTPException(
                 status_code=400,
-                detail={"error": "没有可导出的完整账号，需要同时有 access_token、refresh_token 和 id_token"},
+                detail={"error": "没有可导出的账号，需要完整 OAuth 三件套或 Codex Agent Identity"},
             )
 
         timestamp = _download_timestamp()
@@ -363,7 +364,7 @@ def create_router() -> APIRouter:
                 headers={"Content-Disposition": f'attachment; filename="codex-accounts-{timestamp}.zip"'},
             )
 
-        payload: dict[str, str] | list[dict[str, str]] = items[0] if len(items) == 1 else items
+        payload: dict[str, Any] | list[dict[str, Any]] = items[0] if len(items) == 1 else items
         return Response(
             json.dumps(payload, ensure_ascii=False, indent=2) + "\n",
             media_type="application/json",

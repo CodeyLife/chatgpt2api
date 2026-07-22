@@ -91,6 +91,40 @@ class AccountExportTests(unittest.TestCase):
         self.assertEqual(items[0]["id_token"], complete_id_token)
         self.assertEqual(items[0]["refresh_token"], "rt_complete")
 
+    def test_build_export_items_exports_codex_agent_identity_accounts(self) -> None:
+        service = AccountService(
+            MemoryStorage(
+                [
+                    {
+                        "access_token": "access-token",
+                        "source_type": "codex",
+                        "email": "agent@example.com",
+                        "account_id": "acct_agent",
+                        "user_id": "user_agent",
+                        "type": "Plus",
+                        "agent_identity": {
+                            "agent_runtime_id": "runtime_123",
+                            "agent_private_key": "private-key",
+                            "account_id": "acct_agent",
+                            "chatgpt_user_id": "user_agent",
+                            "email": "agent@example.com",
+                            "plan_type": "plus",
+                            "chatgpt_account_is_fedramp": False,
+                        },
+                    }
+                ]
+            )
+        )
+
+        [item] = service.build_export_items(["access-token"])
+
+        self.assertEqual(item["type"], "codex_agent_identity")
+        self.assertEqual(item["auth_mode"], "agent_identity")
+        self.assertEqual(item["source_type"], "codex")
+        self.assertEqual(item["export_type"], "codex_agent_identity")
+        self.assertEqual(item["access_token"], "access-token")
+        self.assertEqual(item["agent_identity"]["agent_runtime_id"], "runtime_123")
+
     def test_add_account_items_preserves_export_fields_without_overwriting_plan_type(self) -> None:
         service = AccountService(MemoryStorage())
 
@@ -112,6 +146,29 @@ class AccountExportTests(unittest.TestCase):
         self.assertEqual(account["export_type"], "codex")
         self.assertEqual(account["refresh_token"], "rt_test")
         self.assertEqual(account["account_id"], "acct_123")
+
+    def test_add_account_items_treats_codex_agent_identity_type_as_export_format(self) -> None:
+        service = AccountService(MemoryStorage())
+
+        service.add_account_items(
+            [
+                {
+                    "type": "codex_agent_identity",
+                    "access_token": "access_token_test",
+                    "plan_type": "plus",
+                    "agent_identity": {
+                        "agent_runtime_id": "runtime_123",
+                        "agent_private_key": "private-key",
+                    },
+                }
+            ]
+        )
+
+        account = service.get_account("access_token_test")
+        self.assertEqual(account["type"], "plus")
+        self.assertEqual(account["export_type"], "codex_agent_identity")
+        self.assertEqual(account["source_type"], "codex")
+        self.assertEqual(account["agent_identity"]["agent_runtime_id"], "runtime_123")
 
 
 if __name__ == "__main__":

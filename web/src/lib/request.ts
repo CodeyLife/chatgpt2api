@@ -28,6 +28,21 @@ function errorMessageFromValue(value: unknown): string {
     return errorMessageFromValue(item.error);
 }
 
+async function normalizeErrorPayload(value: unknown): Promise<ErrorPayload | undefined> {
+    if (typeof Blob !== "undefined" && value instanceof Blob) {
+        const text = await value.text();
+        if (!text) {
+            return undefined;
+        }
+        try {
+            return JSON.parse(text) as ErrorPayload;
+        } catch {
+            return {message: text};
+        }
+    }
+    return value as ErrorPayload | undefined;
+}
+
 export const request = axios.create({
     baseURL: webConfig.apiUrl.replace(/\/$/, ""),
 });
@@ -61,7 +76,7 @@ request.interceptors.response.use(
             }
         }
 
-        const payload = error.response?.data;
+        const payload = await normalizeErrorPayload(error.response?.data);
         const message =
             errorMessageFromValue(payload?.detail) ||
             errorMessageFromValue(payload?.error) ||

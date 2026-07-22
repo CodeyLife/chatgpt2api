@@ -378,6 +378,8 @@ export type RegisterConfig = {
   sentinel_browser_chrome_path: string;
   sentinel_browser_sdk_url: string;
   sentinel_browser_fallback: boolean;
+  codex_agent_identity_enabled: boolean;
+  codex_agent_identity_verify_task: boolean;
   new_account_warmup_minutes: number;
   new_account_verify_delay_seconds: number;
   new_account_max_verify_workers: number;
@@ -429,6 +431,20 @@ export async function createAccounts(tokens: string[], accounts: AccountImportPa
     method: "POST",
     body: { tokens, accounts },
   });
+}
+
+export async function exportAccounts(accessTokens: string[] = [], format: "json" | "zip" = "json") {
+  const response = await request.post("/api/accounts/export", { access_tokens: accessTokens, format }, { responseType: "blob" });
+  const disposition = String(response.headers["content-disposition"] || "");
+  const match = disposition.match(/filename="?([^";]+)"?/i);
+  const filename = match?.[1] || (format === "zip" ? "codex-accounts.zip" : "codex-accounts.json");
+  const blob = new Blob([response.data], { type: format === "zip" ? "application/zip" : "application/json;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(url);
 }
 
 export async function createCodexAgentIdentity(input: {

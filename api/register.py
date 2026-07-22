@@ -28,6 +28,8 @@ class RegisterConfigRequest(BaseModel):
     sentinel_browser_chrome_path: str | None = None
     sentinel_browser_sdk_url: str | None = None
     sentinel_browser_fallback: bool | None = None
+    codex_agent_identity_enabled: bool | None = None
+    codex_agent_identity_verify_task: bool | None = None
     new_account_warmup_minutes: int | None = None
     new_account_verify_delay_seconds: int | None = None
     new_account_max_verify_workers: int | None = None

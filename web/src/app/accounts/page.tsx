@@ -44,6 +44,7 @@ import {
 } from "@/components/ui/select";
 import {
   deleteAccounts,
+  exportAccounts,
   fetchAccounts,
   fetchModels,
   fetchRefreshProgress,
@@ -70,6 +71,12 @@ const accountStatusOptions: { label: string; value: AccountStatus | "all" }[] = 
   { label: "异常", value: "异常" },
   { label: "禁用", value: "禁用" },
 ];
+
+const identityFilterOptions = [
+  { label: "全部身份", value: "all" },
+  { label: "Codex Agent Identity", value: "agent_identity" },
+  { label: "无 Agent Identity", value: "no_agent_identity" },
+] as const;
 
 const statusMeta: Record<
   AccountStatus,
@@ -193,6 +200,7 @@ function AccountsPageContent() {
   const [query, setQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState<AccountStatus | "all">("all");
+  const [identityFilter, setIdentityFilter] = useState<(typeof identityFilterOptions)[number]["value"]>("all");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState("10");
   const [editingAccount, setEditingAccount] = useState<Account | null>(null);
@@ -271,12 +279,19 @@ function AccountsPageContent() {
     const normalizedQuery = query.trim().toLowerCase();
     return accounts.filter((account) => {
       const searchMatched =
-        normalizedQuery.length === 0 || (account.email ?? "").toLowerCase().includes(normalizedQuery);
+        normalizedQuery.length === 0
+        || (account.email ?? "").toLowerCase().includes(normalizedQuery)
+        || String(account.agent_identity?.agent_runtime_id || "").toLowerCase().includes(normalizedQuery);
       const typeMatched = typeFilter === "all" || displayAccountType(account) === typeFilter;
       const statusMatched = statusFilter === "all" || account.status === statusFilter;
-      return searchMatched && typeMatched && statusMatched;
+      const hasAgentIdentity = Boolean(account.agent_identity?.agent_runtime_id);
+      const identityMatched =
+        identityFilter === "all"
+        || (identityFilter === "agent_identity" && hasAgentIdentity)
+        || (identityFilter === "no_agent_identity" && !hasAgentIdentity);
+      return searchMatched && typeMatched && statusMatched && identityMatched;
     });
-  }, [accounts, query, statusFilter, typeFilter]);
+  }, [accounts, identityFilter, query, statusFilter, typeFilter]);
 
   const pageCount = Math.max(1, Math.ceil(filteredAccounts.length / Number(pageSize)));
   const safePage = Math.min(page, pageCount);
@@ -312,6 +327,15 @@ function AccountsPageContent() {
   const abnormalTokens = useMemo(() => {
     return accounts.filter((item) => item.status === "异常").map((item) => item.access_token);
   }, [accounts]);
+
+  const handleExportAccounts = async (items: Account[]) => {
+    try {
+      await exportAccounts(items.map((item) => item.access_token), "json");
+      toast.success("账号 JSON 已开始下载");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "导出账号 JSON 失败");
+    }
+  };
 
   const paginationItems = useMemo(() => {
     const items: (number | "...")[] = [];
@@ -781,6 +805,15 @@ function AccountsPageContent() {
             <Download className="size-4" />
             导出全部 Token
           </Button>
+          <Button
+            variant="outline"
+            className="h-10 rounded-xl border-stone-200 bg-white/80 px-4 text-stone-700 hover:bg-white"
+            onClick={() => void handleExportAccounts(accounts)}
+            disabled={accounts.length === 0}
+          >
+            <Download className="size-4" />
+            导出账号 JSON
+          </Button>
         </div>
       </section>
 
@@ -953,7 +986,7 @@ function AccountsPageContent() {
                   setQuery(event.target.value);
                   setPage(1);
                 }}
-                placeholder="搜索邮箱"
+                placeholder="搜索邮箱或 runtime id"
                 className="h-10 rounded-xl border-stone-200 bg-white/85 pl-10"
               />
             </div>
@@ -987,6 +1020,24 @@ function AccountsPageContent() {
               </SelectTrigger>
               <SelectContent>
                 {accountStatusOptions.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select
+              value={identityFilter}
+              onValueChange={(value) => {
+                setIdentityFilter(value as typeof identityFilter);
+                setPage(1);
+              }}
+            >
+              <SelectTrigger className="h-10 w-full rounded-xl border-stone-200 bg-white/85 lg:w-[190px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {identityFilterOptions.map((option) => (
                   <SelectItem key={option.value} value={option.value}>
                     {option.label}
                   </SelectItem>
@@ -1027,6 +1078,15 @@ function AccountsPageContent() {
                 >
                   {isRefreshing ? <LoaderCircle className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
                   刷新选中账号信息和额度
+                </Button>
+                <Button
+                  variant="ghost"
+                  className="h-8 rounded-lg px-3 text-stone-500 hover:bg-stone-100"
+                  onClick={() => void handleExportAccounts(accounts.filter((item) => selectedIds.includes(item.access_token)))}
+                  disabled={selectedTokens.length === 0}
+                >
+                  <Download className="size-4" />
+                  导出所选账号 JSON
                 </Button>
                 <Button
                   variant="ghost"

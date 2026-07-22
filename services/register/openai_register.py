@@ -18,6 +18,7 @@ from urllib.parse import parse_qs, urlencode, urlparse
 from curl_cffi import requests
 
 from services.account_service import account_service
+from services.codex_agent_identity_service import codex_agent_identity_service
 from services.proxy_service import ClearanceBundle, proxy_settings
 from services.register import mail_provider
 from utils.fingerprint import BrowserProfile, build_common_headers, build_navigate_headers, random_profile
@@ -40,6 +41,8 @@ config = {
     "sentinel_browser_chrome_path": "",
     "sentinel_browser_sdk_url": "",
     "sentinel_browser_fallback": True,
+    "codex_agent_identity_enabled": False,
+    "codex_agent_identity_verify_task": True,
     "new_account_warmup_minutes": 30,
     "new_account_verify_delay_seconds": 120,
     "new_account_max_verify_workers": 2,
@@ -55,6 +58,8 @@ REGISTER_RUNTIME_CONFIG_KEYS = (
     "sentinel_browser_chrome_path",
     "sentinel_browser_sdk_url",
     "sentinel_browser_fallback",
+    "codex_agent_identity_enabled",
+    "codex_agent_identity_verify_task",
     "new_account_warmup_minutes",
     "new_account_verify_delay_seconds",
     "new_account_max_verify_workers",
@@ -956,6 +961,32 @@ def worker(index: int) -> dict:
         result = registrar.register(index)
         cost = time.time() - start
         access_token = str(result["access_token"])
+        if config.get("codex_agent_identity_enabled"):
+            step(index, "开始注册 Codex Agent Identity")
+            try:
+                identity_result = codex_agent_identity_service.create_agent_identity(
+                    access_token,
+                    verify_task=bool(config.get("codex_agent_identity_verify_task", True)),
+                    metadata=result,
+                )
+            except Exception as identity_error:
+                result["codex_agent_identity_error"] = str(identity_error)
+                step(index, f"Codex Agent Identity 生成失败，保留基础账号: {identity_error}", "yellow")
+            else:
+                result = {
+                    **result,
+                    **identity_result.account_payload,
+                    "refresh_token": result.get("refresh_token", ""),
+                    "id_token": result.get("id_token", ""),
+                    "password": result.get("password", ""),
+                    "device_id": result.get("device_id", ""),
+                    "fingerprint_profile": result.get("fingerprint_profile", ""),
+                }
+                if identity_result.verify_warning:
+                    result["codex_agent_identity_verify_warning"] = identity_result.verify_warning
+                    step(index, f"Codex Agent Identity 已生成，task 验证失败: {identity_result.verify_warning}", "yellow")
+                else:
+                    step(index, "Codex Agent Identity 已生成并验证")
         account_service.add_account_items([result])
         refresh_result = account_service.verify_new_accounts([access_token])
         if refresh_result.get("errors"):
