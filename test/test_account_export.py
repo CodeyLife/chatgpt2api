@@ -102,6 +102,8 @@ class AccountExportTests(unittest.TestCase):
                         "account_id": "acct_agent",
                         "user_id": "user_agent",
                         "type": "Plus",
+                        "note": "batch A",
+                        "note_updated_at": "2026-07-23T12:00:00",
                         "agent_identity": {
                             "agent_runtime_id": "runtime_123",
                             "agent_private_key": "private-key",
@@ -110,6 +112,11 @@ class AccountExportTests(unittest.TestCase):
                             "email": "agent@example.com",
                             "plan_type": "plus",
                             "chatgpt_account_is_fedramp": False,
+                        },
+                        "extract_link": {
+                            "status": "success",
+                            "link_type": "pix",
+                            "result": {"url": "https://pay.example/link"},
                         },
                     }
                 ]
@@ -124,6 +131,28 @@ class AccountExportTests(unittest.TestCase):
         self.assertEqual(item["export_type"], "codex_agent_identity")
         self.assertEqual(item["access_token"], "access-token")
         self.assertEqual(item["agent_identity"]["agent_runtime_id"], "runtime_123")
+        self.assertEqual(item["note"], "batch A")
+        self.assertEqual(item["note_updated_at"], "2026-07-23T12:00:00")
+        self.assertEqual(item["extract_link"]["status"], "success")
+        self.assertEqual(item["extract_link"]["result"]["url"], "https://pay.example/link")
+
+    def test_update_account_notes_updates_existing_accounts_only(self) -> None:
+        service = AccountService(
+            MemoryStorage(
+                [
+                    {"access_token": "token-1", "email": "a@example.com"},
+                    {"access_token": "token-2", "email": "b@example.com", "note": "old"},
+                ]
+            )
+        )
+
+        result = service.update_account_notes(["token-1", "missing", "token-2"], "new note")
+
+        self.assertEqual(result["updated"], 2)
+        self.assertEqual(result["skipped"], 1)
+        self.assertEqual(service.get_account("token-1")["note"], "new note")
+        self.assertEqual(service.get_account("token-2")["note"], "new note")
+        self.assertTrue(service.get_account("token-1")["note_updated_at"])
 
     def test_add_account_items_preserves_export_fields_without_overwriting_plan_type(self) -> None:
         service = AccountService(MemoryStorage())
@@ -169,6 +198,33 @@ class AccountExportTests(unittest.TestCase):
         self.assertEqual(account["export_type"], "codex_agent_identity")
         self.assertEqual(account["source_type"], "codex")
         self.assertEqual(account["agent_identity"]["agent_runtime_id"], "runtime_123")
+
+    def test_add_and_export_preserves_twofa_metadata(self) -> None:
+        access_token = make_jwt({"exp": 0})
+        id_token = make_jwt({"email": "twofa@example.com"})
+        service = AccountService(MemoryStorage())
+
+        service.add_account_items(
+            [
+                {
+                    "access_token": access_token,
+                    "refresh_token": "rt_twofa",
+                    "id_token": id_token,
+                    "totp_secret": "JBSWY3DPEHPK3PXP",
+                    "recovery_codes": ["code-1", "code-2", ""],
+                }
+            ]
+        )
+
+        account = service.get_account(access_token)
+        self.assertTrue(account["twofa_enabled"])
+        self.assertEqual(account["totp_secret"], "JBSWY3DPEHPK3PXP")
+        self.assertEqual(account["recovery_codes"], ["code-1", "code-2"])
+
+        [item] = service.build_export_items([access_token])
+        self.assertTrue(item["twofa_enabled"])
+        self.assertEqual(item["totp_secret"], "JBSWY3DPEHPK3PXP")
+        self.assertEqual(item["recovery_codes"], ["code-1", "code-2"])
 
 
 if __name__ == "__main__":

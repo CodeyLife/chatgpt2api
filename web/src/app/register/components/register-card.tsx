@@ -1,6 +1,8 @@
 "use client";
 
-import { AlertTriangle, LoaderCircle, Plus, Play, RotateCcw, Save, Square, Trash2, UserPlus } from "lucide-react";
+import { useState } from "react";
+import { toast } from "sonner";
+import { AlertTriangle, LoaderCircle, Plus, Play, RotateCcw, Save, Send, Square, Trash2, UserPlus } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -8,14 +10,21 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import { fetchManualOTPWaiting, fetchRegisterRuntime, submitManualOTP, type ManualOTPWaiting, type RegisterRuntimeStatus } from "@/lib/api";
 
 import { useSettingsStore } from "../../settings/store";
 
 export function RegisterCard() {
+  const [manualOTPWaiting, setManualOTPWaiting] = useState<ManualOTPWaiting[]>([]);
+  const [manualOTPBusy, setManualOTPBusy] = useState(false);
+  const [manualOTPCodes, setManualOTPCodes] = useState<Record<string, string>>({});
+  const [runtimeStatus, setRuntimeStatus] = useState<RegisterRuntimeStatus | null>(null);
+  const [runtimeBusy, setRuntimeBusy] = useState(false);
   const config = useSettingsStore((state) => state.registerConfig);
   const isLoading = useSettingsStore((state) => state.isLoadingRegister);
   const isSaving = useSettingsStore((state) => state.isSavingRegister);
   const setProxy = useSettingsStore((state) => state.setRegisterProxy);
+  const setRegisterDriver = useSettingsStore((state) => state.setRegisterDriver);
   const setTotal = useSettingsStore((state) => state.setRegisterTotal);
   const setThreads = useSettingsStore((state) => state.setRegisterThreads);
   const setMode = useSettingsStore((state) => state.setRegisterMode);
@@ -29,6 +38,10 @@ export function RegisterCard() {
   const setNewAccountMaxVerifyWorkers = useSettingsStore((state) => state.setRegisterNewAccountMaxVerifyWorkers);
   const setCodexAgentIdentityEnabled = useSettingsStore((state) => state.setRegisterCodexAgentIdentityEnabled);
   const setCodexAgentIdentityVerifyTask = useSettingsStore((state) => state.setRegisterCodexAgentIdentityVerifyTask);
+  const setCodexOAuthEnabled = useSettingsStore((state) => state.setRegisterCodexOAuthEnabled);
+  const setCodexOAuthViaCPA = useSettingsStore((state) => state.setRegisterCodexOAuthViaCPA);
+  const setCodexOAuthCPAPoolId = useSettingsStore((state) => state.setRegisterCodexOAuthCPAPoolId);
+  const setNestedField = useSettingsStore((state) => state.setRegisterNestedField);
   const setMailField = useSettingsStore((state) => state.setRegisterMailField);
   const setMailApiUseRegisterProxy = useSettingsStore((state) => state.setRegisterMailApiUseRegisterProxy);
   const addProvider = useSettingsStore((state) => state.addRegisterProvider);
@@ -38,6 +51,7 @@ export function RegisterCard() {
   const toggle = useSettingsStore((state) => state.toggleRegister);
   const reset = useSettingsStore((state) => state.resetRegister);
   const resetOutlookPool = useSettingsStore((state) => state.resetOutlookPool);
+  const pools = useSettingsStore((state) => state.pools);
 
   if (isLoading) {
     return (
@@ -52,6 +66,60 @@ export function RegisterCard() {
   const stats = config.stats || { success: 0, fail: 0, done: 0, running: 0, threads: config.threads };
   const providers = config.mail.providers || [];
   const logs = config.logs || [];
+  const drivers = config.drivers || [];
+  const currentDriver = config.registration_driver || "platform_oauth";
+  const currentDriverInfo = drivers.find((item) => item.name === currentDriver);
+  const driverSupportsAgentIdentity = Boolean(currentDriverInfo?.supports_agent_identity);
+  const driverSupportsCodexOAuth = Boolean(currentDriverInfo?.supports_codex_oauth);
+  const browserUse = config.browser_use || {};
+  const skyvern = config.skyvern || {};
+  const roxy = config.roxy || {};
+  const cloak = config.cloak || {};
+  const sms = config.sms || {};
+  const flowTrigger = config.flow_trigger || {};
+  const humanize = config.humanize || {};
+  const chatgptWeb = config.chatgpt_web || {};
+  const profile = config.profile || {};
+  const checkRuntime = async () => {
+    try {
+      setRuntimeBusy(true);
+      const data = await fetchRegisterRuntime();
+      setRuntimeStatus(data);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "检查注册运行时失败");
+    } finally {
+      setRuntimeBusy(false);
+    }
+  };
+  const refreshManualOTPWaiting = async () => {
+    try {
+      setManualOTPBusy(true);
+      const data = await fetchManualOTPWaiting();
+      setManualOTPWaiting(data.waiting || []);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "读取手动 OTP 等待列表失败");
+    } finally {
+      setManualOTPBusy(false);
+    }
+  };
+  const submitManualOTPCode = async (email: string) => {
+    const code = String(manualOTPCodes[email] || "").trim();
+    if (!code) {
+      toast.error("请输入验证码");
+      return;
+    }
+    try {
+      setManualOTPBusy(true);
+      await submitManualOTP(email, code);
+      toast.success("验证码已提交");
+      setManualOTPCodes((state) => ({ ...state, [email]: "" }));
+      await refreshManualOTPWaiting();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "提交验证码失败");
+    } finally {
+      setManualOTPBusy(false);
+    }
+  };
   const updateProviderType = (index: number, type: string) => {
     updateProvider(index, {
       type,
@@ -66,6 +134,10 @@ export function RegisterCard() {
       ...(type === "yyds_mail" ? { api_base: "https://maliapi.215.im/v1", api_key: "", domain: [], subdomain: "", wildcard: false } : {}),
       ...(type === "ddg_mail" ? { ddg_token: "", cf_inbox_jwt: "", cf_domain: [], admin_password: "" } : {}),
       ...(type === "outlook_token" ? { mailboxes: "", mode: "graph", imap_host: "outlook.office365.com", message_limit: 10 } : {}),
+      ...(type === "qqmail_imap" ? { domain: [], qq_email: "", imap_password: "", imap_host: "imap.qq.com", imap_port: 993, message_limit: 15, local_length: 8 } : {}),
+      ...(type === "generic_api" ? { mailboxes: "" } : {}),
+      ...(type === "manual" ? { mailboxes: "" } : {}),
+      ...(type === "mailnest" ? { api_base: "https://mailnest.top", api_key: "", project_code: "chatgpt001" } : {}),
     });
   };
 
@@ -92,7 +164,41 @@ export function RegisterCard() {
             <span>如果注册失败，后端会保存失败网页/JSON 响应用于诊断；Cloudflare 拦截可在设置页启用 FlareSolverr 清障。</span>
           </div>
 
+          <div className="flex flex-wrap items-center gap-2 rounded-xl border border-stone-200 bg-white px-3 py-2 text-xs text-stone-600">
+            <Button type="button" variant="outline" className="h-8 rounded-xl border-stone-200 bg-white" onClick={() => void checkRuntime()} disabled={runtimeBusy}>
+              {runtimeBusy ? <LoaderCircle className="size-4 animate-spin" /> : <RotateCcw className="size-4" />}
+              检查运行时
+            </Button>
+            {runtimeStatus ? (
+              <>
+                <Badge variant={runtimeStatus.runtime.playwright.available ? "default" : "secondary"}>
+                  Playwright {runtimeStatus.runtime.playwright.available ? runtimeStatus.runtime.playwright.version || "可用" : "不可用"}
+                </Badge>
+                <Badge variant={runtimeStatus.runtime.sentinel.available ? "default" : "secondary"}>
+                  Sentinel {runtimeStatus.runtime.sentinel.available ? "Chrome 可用" : "Chrome 不可用"}
+                </Badge>
+                {!runtimeStatus.runtime.playwright.available ? <span className="text-stone-500">{runtimeStatus.runtime.playwright.error}</span> : null}
+                {!runtimeStatus.runtime.sentinel.available ? <span className="text-stone-500">{runtimeStatus.runtime.sentinel.error}</span> : null}
+              </>
+            ) : (
+              <span>检查 Playwright、云浏览器 CDP 和 Sentinel Chrome 环境。</span>
+            )}
+          </div>
+
           <div className="grid gap-4 md:grid-cols-3">
+            <div className="space-y-2">
+              <label className="text-sm text-stone-700">注册驱动</label>
+              <Select value={currentDriver} onValueChange={setRegisterDriver} disabled={config.enabled}>
+                <SelectTrigger className="h-10 rounded-xl border-stone-200 bg-white">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {(drivers.length ? drivers : [{ name: "platform_oauth", label: "Platform OAuth" }]).map((driver) => (
+                    <SelectItem key={driver.name} value={driver.name}>{driver.label || driver.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
             <div className="space-y-2">
               <label className="text-sm text-stone-700">注册模式</label>
               <Select value={config.mode || "total"} onValueChange={(value) => setMode(value as "total" | "quota" | "available")} disabled={config.enabled}>
@@ -150,14 +256,24 @@ export function RegisterCard() {
               <label className="text-sm text-stone-700">新号复查并发</label>
               <Input value={String(config.new_account_max_verify_workers ?? 2)} onChange={(event) => setNewAccountMaxVerifyWorkers(event.target.value)} className="h-10 rounded-xl border-stone-200 bg-white" disabled={config.enabled} />
             </div>
+            <div className="space-y-2">
+              <label className="text-sm text-stone-700">注册最小年龄</label>
+              <Input value={String(profile.min_age ?? 18)} onChange={(event) => setNestedField("profile", "min_age", Number(event.target.value) || 18)} className="h-10 rounded-xl border-stone-200 bg-white" disabled={config.enabled} />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm text-stone-700">注册最大年龄</label>
+              <Input value={String(profile.max_age ?? 65)} onChange={(event) => setNestedField("profile", "max_age", Number(event.target.value) || 65)} className="h-10 rounded-xl border-stone-200 bg-white" disabled={config.enabled} />
+            </div>
           </div>
 
           <div className="grid gap-3 rounded-xl border border-stone-200 bg-stone-50 p-3 md:grid-cols-2">
             <label className="flex items-start gap-3 text-sm text-stone-700">
-              <Checkbox checked={Boolean(config.codex_agent_identity_enabled)} onCheckedChange={(checked) => setCodexAgentIdentityEnabled(Boolean(checked))} disabled={config.enabled} />
+              <Checkbox checked={Boolean(config.codex_agent_identity_enabled)} onCheckedChange={(checked) => setCodexAgentIdentityEnabled(Boolean(checked))} disabled={config.enabled || !driverSupportsAgentIdentity} />
               <span>
                 <span className="block font-medium text-stone-800">注册后生成 Codex Agent Identity</span>
-                <span className="mt-1 block text-xs leading-5 text-stone-500">保存为 codex 来源账号，并额外保存 agent_identity；当前请求链路不会使用它。</span>
+                <span className="mt-1 block text-xs leading-5 text-stone-500">
+                  {driverSupportsAgentIdentity ? "保存 agent_identity；当前请求链路不会使用它。" : "需要选择 ChatGPT Web Session 驱动。"}
+                </span>
               </span>
             </label>
             <label className="flex items-start gap-3 text-sm text-stone-700">
@@ -167,6 +283,332 @@ export function RegisterCard() {
                 <span className="mt-1 block text-xs leading-5 text-stone-500">验证失败会保留 warning，不会用于请求调度。</span>
               </span>
             </label>
+            <label className="flex items-start gap-3 text-sm text-stone-700">
+              <Checkbox checked={Boolean(config.codex_oauth_enabled)} onCheckedChange={(checked) => setCodexOAuthEnabled(Boolean(checked))} disabled={config.enabled || !driverSupportsCodexOAuth} />
+              <span>
+                <span className="block font-medium text-stone-800">注册后启用 Codex OAuth</span>
+                <span className="mt-1 block text-xs leading-5 text-stone-500">首版通过 CPA 管理接口处理 callback；浏览器驱动后续复用同一开关。</span>
+              </span>
+            </label>
+            <label className="flex items-start gap-3 text-sm text-stone-700">
+              <Checkbox checked={config.codex_oauth_via_cpa !== false} onCheckedChange={(checked) => setCodexOAuthViaCPA(Boolean(checked))} disabled={config.enabled || !config.codex_oauth_enabled} />
+              <span>
+                <span className="block font-medium text-stone-800">Codex OAuth 使用 CPA</span>
+                <span className="mt-1 block text-xs leading-5 text-stone-500">由 CPA 持有 verifier 并保存 auth 文件。</span>
+              </span>
+            </label>
+            <div className="space-y-2 md:col-span-2">
+              <label className="text-sm text-stone-700">Codex OAuth CPA 连接</label>
+              <Select value={config.codex_oauth_cpa_pool_id || "none"} onValueChange={(value) => setCodexOAuthCPAPoolId(value === "none" ? "" : value)} disabled={config.enabled || !config.codex_oauth_enabled || config.codex_oauth_via_cpa === false}>
+                <SelectTrigger className="h-10 rounded-xl border-stone-200 bg-white">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="none">未选择</SelectItem>
+                  {pools.map((pool) => (
+                    <SelectItem key={pool.id} value={pool.id}>{pool.name || pool.base_url}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+
+          {currentDriver === "chatgpt_web" ? (
+            <div className="grid gap-3 rounded-xl border border-stone-200 bg-white p-3 md:grid-cols-2">
+              <label className="flex items-start gap-3 text-sm text-stone-700">
+                <Checkbox
+                  checked={chatgptWeb.bootstrap_enabled !== false}
+                  onCheckedChange={(checked) => setNestedField("chatgpt_web", "bootstrap_enabled", Boolean(checked))}
+                  disabled={config.enabled}
+                />
+                <span>
+                  <span className="block font-medium text-stone-800">ChatGPT Web bootstrap 预热</span>
+                  <span className="mt-1 block text-xs leading-5 text-stone-500">注册前后访问 Web 首屏相关接口，让 session 更接近真实 ChatGPT Web 初始化。</span>
+                </span>
+              </label>
+              <label className="flex items-start gap-3 text-sm text-stone-700">
+                <Checkbox
+                  checked={Boolean(chatgptWeb.bootstrap_strict)}
+                  onCheckedChange={(checked) => setNestedField("chatgpt_web", "bootstrap_strict", Boolean(checked))}
+                  disabled={config.enabled || chatgptWeb.bootstrap_enabled === false}
+                />
+                <span>
+                  <span className="block font-medium text-stone-800">bootstrap 失败时中断注册</span>
+                  <span className="mt-1 block text-xs leading-5 text-stone-500">默认关闭；关闭时预热失败只写 SSE 日志并继续注册。</span>
+                </span>
+              </label>
+            </div>
+          ) : null}
+
+          <div className="grid gap-3 rounded-xl border border-stone-200 bg-stone-50 p-3 md:grid-cols-2">
+            <label className="flex items-start gap-3 text-sm text-stone-700">
+              <Checkbox checked={humanize.enabled !== false} onCheckedChange={(checked) => setNestedField("humanize", "enabled", Boolean(checked))} disabled={config.enabled} />
+              <span>
+                <span className="block font-medium text-stone-800">浏览器注册人类化延迟</span>
+                <span className="mt-1 block text-xs leading-5 text-stone-500">BrowserUse / Skyvern / Roxy / Cloak 注册流会在导航、填表、OTP、拉 session 等动作间随机停顿。</span>
+              </span>
+            </label>
+            <div className="space-y-2">
+              <label className="text-sm text-stone-700">延迟倍率</label>
+              <Input value={String(humanize.factor ?? 1)} onChange={(event) => setNestedField("humanize", "factor", Number(event.target.value) || 0)} className="h-10 rounded-xl border-stone-200 bg-white" disabled={config.enabled || humanize.enabled === false} />
+            </div>
+          </div>
+
+          <div className="grid gap-3 rounded-xl border border-stone-200 bg-white p-3 md:grid-cols-2">
+            <label className="flex items-start gap-3 text-sm text-stone-700 md:col-span-2">
+              <Checkbox checked={Boolean(flowTrigger.enabled)} onCheckedChange={(checked) => setNestedField("flow_trigger", "enabled", Boolean(checked))} disabled={config.enabled} />
+              <span>
+                <span className="block font-medium text-stone-800">注册后 Flow Trigger</span>
+                <span className="mt-1 block text-xs leading-5 text-stone-500">注册成功并保存基础账号后投递 access token；失败只写入账号字段和日志。</span>
+              </span>
+            </label>
+            <div className="space-y-2 md:col-span-2">
+              <label className="text-sm text-stone-700">Flow URL</label>
+              <Input value={String(flowTrigger.url || "")} onChange={(event) => setNestedField("flow_trigger", "url", event.target.value)} className="h-10 rounded-xl border-stone-200 bg-white" disabled={config.enabled || !flowTrigger.enabled} />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm text-stone-700">Bearer</label>
+              <Input value={String(flowTrigger.bearer || "")} onChange={(event) => setNestedField("flow_trigger", "bearer", event.target.value)} className="h-10 rounded-xl border-stone-200 bg-white" disabled={config.enabled || !flowTrigger.enabled} />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm text-stone-700">Cookie</label>
+              <Input value={String(flowTrigger.cookie || "")} onChange={(event) => setNestedField("flow_trigger", "cookie", event.target.value)} className="h-10 rounded-xl border-stone-200 bg-white" disabled={config.enabled || !flowTrigger.enabled} />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm text-stone-700">Token 字段名</label>
+              <Input value={String(flowTrigger.access_token_key || "access_token")} onChange={(event) => setNestedField("flow_trigger", "access_token_key", event.target.value)} className="h-10 rounded-xl border-stone-200 bg-white" disabled={config.enabled || !flowTrigger.enabled} />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm text-stone-700">超时（秒）</label>
+              <Input value={String(flowTrigger.timeout || 30)} onChange={(event) => setNestedField("flow_trigger", "timeout", Number(event.target.value) || 30)} className="h-10 rounded-xl border-stone-200 bg-white" disabled={config.enabled || !flowTrigger.enabled} />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm text-stone-700">Origin</label>
+              <Input value={String(flowTrigger.origin || "")} onChange={(event) => setNestedField("flow_trigger", "origin", event.target.value)} className="h-10 rounded-xl border-stone-200 bg-white" disabled={config.enabled || !flowTrigger.enabled} />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm text-stone-700">Referer</label>
+              <Input value={String(flowTrigger.referer || "")} onChange={(event) => setNestedField("flow_trigger", "referer", event.target.value)} className="h-10 rounded-xl border-stone-200 bg-white" disabled={config.enabled || !flowTrigger.enabled} />
+            </div>
+            <label className="flex items-center gap-2 text-sm text-stone-700">
+              <Checkbox checked={Boolean(flowTrigger.use_register_proxy)} onCheckedChange={(checked) => setNestedField("flow_trigger", "use_register_proxy", Boolean(checked))} disabled={config.enabled || !flowTrigger.enabled} />
+              使用注册代理
+            </label>
+            <label className="flex items-center gap-2 text-sm text-stone-700">
+              <Checkbox checked={flowTrigger.verify_ssl !== false} onCheckedChange={(checked) => setNestedField("flow_trigger", "verify_ssl", Boolean(checked))} disabled={config.enabled || !flowTrigger.enabled} />
+              验证 TLS
+            </label>
+            <div className="space-y-2 md:col-span-2">
+              <label className="text-sm text-stone-700">Payload JSON</label>
+              <Textarea value={JSON.stringify(flowTrigger.payload || {}, null, 2)} onChange={(event) => setNestedField("flow_trigger", "payload", event.target.value)} className="min-h-24 rounded-xl border-stone-200 bg-white font-mono text-xs" disabled={config.enabled || !flowTrigger.enabled} />
+            </div>
+          </div>
+
+          {currentDriver === "browser_use" ? (
+            <div className="grid gap-3 rounded-xl border border-stone-200 bg-white p-3 md:grid-cols-2">
+              <div className="space-y-2">
+                <label className="text-sm text-stone-700">Browser Use API Key</label>
+                <Input value={String(browserUse.api_key || "")} onChange={(event) => setNestedField("browser_use", "api_key", event.target.value)} className="h-10 rounded-xl border-stone-200 bg-white" disabled={config.enabled} />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm text-stone-700">CDP Base</label>
+                <Input value={String(browserUse.cdp_base || "wss://connect.browser-use.com")} onChange={(event) => setNestedField("browser_use", "cdp_base", event.target.value)} className="h-10 rounded-xl border-stone-200 bg-white" disabled={config.enabled} />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm text-stone-700">Proxy Country</label>
+                <Input value={String(browserUse.proxy_country_code || "")} onChange={(event) => setNestedField("browser_use", "proxy_country_code", event.target.value)} placeholder="us / jp / gb" className="h-10 rounded-xl border-stone-200 bg-white" disabled={config.enabled} />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm text-stone-700">Profile ID</label>
+                <Input value={String(browserUse.profile_id || "")} onChange={(event) => setNestedField("browser_use", "profile_id", event.target.value)} className="h-10 rounded-xl border-stone-200 bg-white" disabled={config.enabled} />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm text-stone-700">Start URL</label>
+                <Input value={String(browserUse.start_url || "https://chatgpt.com/auth/login")} onChange={(event) => setNestedField("browser_use", "start_url", event.target.value)} className="h-10 rounded-xl border-stone-200 bg-white" disabled={config.enabled} />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm text-stone-700">页面超时（秒）</label>
+                <Input value={String(browserUse.timeout || 90)} onChange={(event) => setNestedField("browser_use", "timeout", Number(event.target.value) || 90)} className="h-10 rounded-xl border-stone-200 bg-white" disabled={config.enabled} />
+              </div>
+            </div>
+          ) : null}
+
+          {currentDriver === "skyvern" ? (
+            <div className="grid gap-3 rounded-xl border border-stone-200 bg-white p-3 md:grid-cols-2">
+              <div className="space-y-2">
+                <label className="text-sm text-stone-700">Skyvern API Key</label>
+                <Input value={String(skyvern.api_key || "")} onChange={(event) => setNestedField("skyvern", "api_key", event.target.value)} className="h-10 rounded-xl border-stone-200 bg-white" disabled={config.enabled} />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm text-stone-700">API Base</label>
+                <Input value={String(skyvern.api_base || "https://api.skyvern.com")} onChange={(event) => setNestedField("skyvern", "api_base", event.target.value)} className="h-10 rounded-xl border-stone-200 bg-white" disabled={config.enabled} />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm text-stone-700">Proxy Location</label>
+                <Input value={String(skyvern.proxy_location || "")} onChange={(event) => setNestedField("skyvern", "proxy_location", event.target.value)} placeholder="US / JP / RESIDENTIAL_GB" className="h-10 rounded-xl border-stone-200 bg-white" disabled={config.enabled} />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm text-stone-700">Browser Profile ID</label>
+                <Input value={String(skyvern.browser_profile_id || "")} onChange={(event) => setNestedField("skyvern", "browser_profile_id", event.target.value)} className="h-10 rounded-xl border-stone-200 bg-white" disabled={config.enabled} />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm text-stone-700">Start URL</label>
+                <Input value={String(skyvern.start_url || "https://chatgpt.com/auth/login")} onChange={(event) => setNestedField("skyvern", "start_url", event.target.value)} className="h-10 rounded-xl border-stone-200 bg-white" disabled={config.enabled} />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm text-stone-700">页面超时（秒）</label>
+                <Input value={String(skyvern.timeout || 90)} onChange={(event) => setNestedField("skyvern", "timeout", Number(event.target.value) || 90)} className="h-10 rounded-xl border-stone-200 bg-white" disabled={config.enabled} />
+              </div>
+            </div>
+          ) : null}
+
+          {currentDriver === "roxy" ? (
+            <div className="grid gap-3 rounded-xl border border-stone-200 bg-white p-3 md:grid-cols-2">
+              <div className="space-y-2">
+                <label className="text-sm text-stone-700">Roxy API Base</label>
+                <Input value={String(roxy.api_base || "http://127.0.0.1:50100")} onChange={(event) => setNestedField("roxy", "api_base", event.target.value)} className="h-10 rounded-xl border-stone-200 bg-white" disabled={config.enabled} />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm text-stone-700">Roxy API Token</label>
+                <Input value={String(roxy.api_token || "")} onChange={(event) => setNestedField("roxy", "api_token", event.target.value)} className="h-10 rounded-xl border-stone-200 bg-white" disabled={config.enabled} />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm text-stone-700">Profile ID</label>
+                <Input value={String(roxy.profile_id || "")} onChange={(event) => setNestedField("roxy", "profile_id", event.target.value)} className="h-10 rounded-xl border-stone-200 bg-white" disabled={config.enabled} />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm text-stone-700">Workspace ID</label>
+                <Input value={String(roxy.workspace_id || "")} onChange={(event) => setNestedField("roxy", "workspace_id", event.target.value)} className="h-10 rounded-xl border-stone-200 bg-white" disabled={config.enabled} />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm text-stone-700">Project ID</label>
+                <Input value={String(roxy.project_id || "")} onChange={(event) => setNestedField("roxy", "project_id", event.target.value)} className="h-10 rounded-xl border-stone-200 bg-white" disabled={config.enabled} />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm text-stone-700">Start URL</label>
+                <Input value={String(roxy.start_url || "https://chatgpt.com/auth/login")} onChange={(event) => setNestedField("roxy", "start_url", event.target.value)} className="h-10 rounded-xl border-stone-200 bg-white" disabled={config.enabled} />
+              </div>
+              <label className="flex items-center gap-2 text-sm text-stone-700">
+                <Checkbox checked={Boolean(roxy.open_headless)} onCheckedChange={(checked) => setNestedField("roxy", "open_headless", Boolean(checked))} disabled={config.enabled} />
+                无头打开
+              </label>
+              <label className="flex items-center gap-2 text-sm text-stone-700">
+                <Checkbox checked={Boolean(roxy.one_profile_per_account)} onCheckedChange={(checked) => setNestedField("roxy", "one_profile_per_account", Boolean(checked))} disabled={config.enabled} />
+                一号一环境
+              </label>
+              <label className="flex items-center gap-2 text-sm text-stone-700">
+                <Checkbox checked={Boolean(roxy.delete_profile_after_run)} onCheckedChange={(checked) => setNestedField("roxy", "delete_profile_after_run", Boolean(checked))} disabled={config.enabled} />
+                结束后删除环境
+              </label>
+              <label className="flex items-center gap-2 text-sm text-stone-700">
+                <Checkbox checked={Boolean(roxy.keep_browser_open)} onCheckedChange={(checked) => setNestedField("roxy", "keep_browser_open", Boolean(checked))} disabled={config.enabled} />
+                保留浏览器
+              </label>
+              <label className="flex items-center gap-2 text-sm text-stone-700">
+                <Checkbox checked={Boolean(roxy.create_use_proxy)} onCheckedChange={(checked) => setNestedField("roxy", "create_use_proxy", Boolean(checked))} disabled={config.enabled} />
+                创建环境写入注册代理
+              </label>
+              <div className="space-y-2">
+                <label className="text-sm text-stone-700">页面超时（秒）</label>
+                <Input value={String(roxy.timeout || 90)} onChange={(event) => setNestedField("roxy", "timeout", Number(event.target.value) || 90)} className="h-10 rounded-xl border-stone-200 bg-white" disabled={config.enabled} />
+              </div>
+            </div>
+          ) : null}
+
+          {currentDriver === "cloak" ? (
+            <div className="grid gap-3 rounded-xl border border-stone-200 bg-white p-3 md:grid-cols-2">
+              <label className="flex items-center gap-2 text-sm text-stone-700">
+                <Checkbox checked={cloak.headless !== false} onCheckedChange={(checked) => setNestedField("cloak", "headless", Boolean(checked))} disabled={config.enabled} />
+                无头启动
+              </label>
+              <label className="flex items-center gap-2 text-sm text-stone-700">
+                <Checkbox checked={cloak.humanize !== false} onCheckedChange={(checked) => setNestedField("cloak", "humanize", Boolean(checked))} disabled={config.enabled} />
+                Humanize
+              </label>
+              <label className="flex items-center gap-2 text-sm text-stone-700">
+                <Checkbox checked={cloak.geoip !== false} onCheckedChange={(checked) => setNestedField("cloak", "geoip", Boolean(checked))} disabled={config.enabled} />
+                按出口匹配地理信息
+              </label>
+              <label className="flex items-center gap-2 text-sm text-stone-700">
+                <Checkbox checked={cloak.use_proxy !== false} onCheckedChange={(checked) => setNestedField("cloak", "use_proxy", Boolean(checked))} disabled={config.enabled} />
+                使用注册代理
+              </label>
+              <label className="flex items-center gap-2 text-sm text-stone-700">
+                <Checkbox checked={Boolean(cloak.keep_browser_open)} onCheckedChange={(checked) => setNestedField("cloak", "keep_browser_open", Boolean(checked))} disabled={config.enabled} />
+                保留浏览器
+              </label>
+              <div className="space-y-2">
+                <label className="text-sm text-stone-700">Locale</label>
+                <Input value={String(cloak.locale || "")} onChange={(event) => setNestedField("cloak", "locale", event.target.value)} placeholder="ja-JP / en-US" className="h-10 rounded-xl border-stone-200 bg-white" disabled={config.enabled} />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm text-stone-700">Timezone</label>
+                <Input value={String(cloak.timezone || "")} onChange={(event) => setNestedField("cloak", "timezone", event.target.value)} placeholder="Asia/Tokyo" className="h-10 rounded-xl border-stone-200 bg-white" disabled={config.enabled} />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm text-stone-700">Accept-Language</label>
+                <Input value={String(cloak.accept_language || "")} onChange={(event) => setNestedField("cloak", "accept_language", event.target.value)} placeholder="ja-JP,ja;q=0.9,en-US;q=0.8" className="h-10 rounded-xl border-stone-200 bg-white" disabled={config.enabled} />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm text-stone-700">License Key</label>
+                <Input value={String(cloak.license_key || "")} onChange={(event) => setNestedField("cloak", "license_key", event.target.value)} className="h-10 rounded-xl border-stone-200 bg-white" disabled={config.enabled} />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm text-stone-700">Fingerprint Seed</label>
+                <Input value={String(cloak.fingerprint_seed || "")} onChange={(event) => setNestedField("cloak", "fingerprint_seed", event.target.value)} className="h-10 rounded-xl border-stone-200 bg-white" disabled={config.enabled} />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm text-stone-700">User Data Dir</label>
+                <Input value={String(cloak.user_data_dir || "")} onChange={(event) => setNestedField("cloak", "user_data_dir", event.target.value)} className="h-10 rounded-xl border-stone-200 bg-white" disabled={config.enabled} />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm text-stone-700">Start URL</label>
+                <Input value={String(cloak.start_url || "https://chatgpt.com/auth/login")} onChange={(event) => setNestedField("cloak", "start_url", event.target.value)} className="h-10 rounded-xl border-stone-200 bg-white" disabled={config.enabled} />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm text-stone-700">页面超时（秒）</label>
+                <Input value={String(cloak.timeout || 90)} onChange={(event) => setNestedField("cloak", "timeout", Number(event.target.value) || 90)} className="h-10 rounded-xl border-stone-200 bg-white" disabled={config.enabled} />
+              </div>
+            </div>
+          ) : null}
+
+          <div className="grid gap-3 rounded-xl border border-stone-200 bg-white p-3 md:grid-cols-3">
+            <label className="flex items-start gap-3 text-sm text-stone-700 md:col-span-3">
+              <Checkbox checked={Boolean(sms.enabled)} onCheckedChange={(checked) => setNestedField("sms", "enabled", Boolean(checked))} disabled={config.enabled} />
+              <span>
+                <span className="block font-medium text-stone-800">Codex OAuth 手机验证使用 SMS</span>
+                <span className="mt-1 block text-xs leading-5 text-stone-500">仅在浏览器授权流程遇到手机号验证页时取号、填入短信码；未开启时不会调用短信平台。</span>
+              </span>
+            </label>
+            <div className="space-y-2">
+              <label className="text-sm text-stone-700">SMS Provider</label>
+              <Select value={String(sms.provider || "grizzly")} onValueChange={(value) => setNestedField("sms", "provider", value)} disabled={config.enabled || !sms.enabled}>
+                <SelectTrigger className="h-10 rounded-xl border-stone-200 bg-white">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="grizzly">GrizzlySMS</SelectItem>
+                  <SelectItem value="l">L API</SelectItem>
+                  <SelectItem value="h">H API</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm text-stone-700">SMS API Key / Token</label>
+              <Input value={String(sms.api_key || sms.l_admin_auth_code || sms.h_admin_auth_code || "")} onChange={(event) => {
+                setNestedField("sms", "api_key", event.target.value);
+                setNestedField("sms", "l_admin_auth_code", event.target.value);
+                setNestedField("sms", "h_admin_auth_code", event.target.value);
+              }} className="h-10 rounded-xl border-stone-200 bg-white" disabled={config.enabled || !sms.enabled} />
+            </div>
+            <div className="space-y-2">
+              <label className="text-sm text-stone-700">Country / Service</label>
+              <Input value={`${String(sms.country || "187")} / ${String(sms.service || "ot")}`} onChange={(event) => {
+                const [country = "", service = ""] = event.target.value.split("/");
+                setNestedField("sms", "country", country.trim());
+                setNestedField("sms", "service", service.trim());
+              }} className="h-10 rounded-xl border-stone-200 bg-white" disabled={config.enabled || !sms.enabled} />
+            </div>
           </div>
 
           <div className="space-y-3 border-t border-stone-200 pt-3">
@@ -236,9 +678,13 @@ export function RegisterCard() {
                             <SelectItem value="inbucket">inbucket_mail</SelectItem>
                             <SelectItem value="duckmail">duckmail</SelectItem>
                             <SelectItem value="gptmail">gptmail(未测试)</SelectItem>
+                            <SelectItem value="generic_api">generic_api</SelectItem>
+                            <SelectItem value="mailnest">mailnest</SelectItem>
                             <SelectItem value="yyds_mail">yyds_mail</SelectItem>
                             <SelectItem value="ddg_mail">ddg_mail (DDG邮箱+CF中转)</SelectItem>
                             <SelectItem value="outlook_token">outlook_token (Outlook/Hotmail 邮箱池)</SelectItem>
+                            <SelectItem value="qqmail_imap">qqmail_imap (CF域名转发到QQ邮箱)</SelectItem>
+                            <SelectItem value="manual">manual (手动验证码)</SelectItem>
                           </SelectContent>
                         </Select>
                       </div>
@@ -295,11 +741,23 @@ export function RegisterCard() {
                           启用随机子域名
                         </label>
                       ) : null}
-                      {type === "tempmail_lol" || type === "moemail" || type === "duckmail" || type === "gptmail" || type === "yyds_mail" ? (
+                      {type === "tempmail_lol" || type === "moemail" || type === "duckmail" || type === "gptmail" || type === "mailnest" || type === "yyds_mail" ? (
                         <div className="space-y-2">
                           <label className="text-sm text-stone-700">API Key</label>
                           <Input value={String(provider.api_key || "")} onChange={(event) => updateProvider(index, { api_key: event.target.value })} className="h-10 rounded-xl border-stone-200 bg-white" disabled={config.enabled} />
                         </div>
+                      ) : null}
+                      {type === "mailnest" ? (
+                        <>
+                          <div className="space-y-2">
+                            <label className="text-sm text-stone-700">API Base</label>
+                            <Input value={String(provider.api_base || "https://mailnest.top")} onChange={(event) => updateProvider(index, { api_base: event.target.value })} className="h-10 rounded-xl border-stone-200 bg-white" disabled={config.enabled} />
+                          </div>
+                          <div className="space-y-2">
+                            <label className="text-sm text-stone-700">Project Code</label>
+                            <Input value={String(provider.project_code || "chatgpt001")} onChange={(event) => updateProvider(index, { project_code: event.target.value })} className="h-10 rounded-xl border-stone-200 bg-white" disabled={config.enabled} />
+                          </div>
+                        </>
                       ) : null}
                       {type === "duckmail" || type === "gptmail" ? (
                         <div className="space-y-2">
@@ -342,6 +800,32 @@ export function RegisterCard() {
                           ) : null}
                         </>
                       ) : null}
+                      {type === "qqmail_imap" ? (
+                        <>
+                          <div className="space-y-2">
+                            <label className="text-sm text-stone-700">QQ 收件邮箱 <span className="text-red-400">*</span></label>
+                            <Input value={String(provider.qq_email || "")} onChange={(event) => updateProvider(index, { qq_email: event.target.value })} placeholder="123456@qq.com" className="h-10 rounded-xl border-stone-200 bg-white" disabled={config.enabled} />
+                          </div>
+                          <div className="space-y-2">
+                            <label className="text-sm text-stone-700">IMAP 授权码 <span className="text-red-400">*</span></label>
+                            <Input type="password" value={String(provider.imap_password || "")} onChange={(event) => updateProvider(index, { imap_password: event.target.value })} placeholder={provider.has_imap_password ? "已保存，留空表示保留" : "QQ邮箱 IMAP/SMTP 授权码"} className="h-10 rounded-xl border-stone-200 bg-white" disabled={config.enabled} />
+                          </div>
+                          <div className="space-y-2">
+                            <label className="text-sm text-stone-700">IMAP Host</label>
+                            <Input value={String(provider.imap_host || "imap.qq.com")} onChange={(event) => updateProvider(index, { imap_host: event.target.value })} className="h-10 rounded-xl border-stone-200 bg-white" disabled={config.enabled} />
+                          </div>
+                          <div className="space-y-2">
+                            <label className="text-sm text-stone-700">端口 / 最近邮件数</label>
+                            <div className="grid grid-cols-2 gap-2">
+                              <Input value={String(provider.imap_port || "993")} onChange={(event) => updateProvider(index, { imap_port: event.target.value })} className="h-10 rounded-xl border-stone-200 bg-white" disabled={config.enabled} />
+                              <Input value={String(provider.message_limit || "15")} onChange={(event) => updateProvider(index, { message_limit: event.target.value })} className="h-10 rounded-xl border-stone-200 bg-white" disabled={config.enabled} />
+                            </div>
+                          </div>
+                          <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs leading-5 text-amber-800 md:col-span-2">
+                            适用于 Cloudflare Email Routing 把随机域名邮箱转发到 QQ 邮箱的场景；授权码只写保存，不会在配置读取或 SSE 中回显。
+                          </div>
+                        </>
+                      ) : null}
                     </div>
 
                     {type === "outlook_token" ? (() => {
@@ -382,10 +866,17 @@ export function RegisterCard() {
                       );
                     })() : null}
 
-                    {type === "cloudmail_gen" || type === "tempmail_lol" || type === "cloudflare_temp_email" || type === "moemail" || type === "inbucket" || type === "yyds_mail" || type === "ddg_mail" ? (
+                    {type === "generic_api" || type === "manual" ? (
+                      <div className="space-y-2">
+                        <label className="text-sm text-stone-700">{type === "manual" ? "手动邮箱池" : "邮箱池导入"}</label>
+                        <Textarea value={String(provider.mailboxes || "")} onChange={(event) => updateProvider(index, { mailboxes: event.target.value })} placeholder={type === "manual" ? "每行一个邮箱，注册流程会等待你在右侧提交验证码" : "每行一个邮箱，格式：\nemail@example.com----https://example.com/code"} className="min-h-32 rounded-xl border-stone-200 bg-white font-mono text-xs" disabled={config.enabled} />
+                      </div>
+                    ) : null}
+
+                    {type === "cloudmail_gen" || type === "tempmail_lol" || type === "cloudflare_temp_email" || type === "moemail" || type === "inbucket" || type === "yyds_mail" || type === "ddg_mail" || type === "qqmail_imap" ? (
                       <div className="space-y-2">
                         <label className="text-sm text-stone-700">{type === "cloudmail_gen" ? "邮箱域名" : type === "inbucket" ? "基础域名列表" : "Domain"}</label>
-                        <Textarea value={domains} onChange={(event) => updateProvider(index, { domain: event.target.value.split(/[\n,]/).map((item) => item.trim()) })} placeholder={type === "cloudmail_gen" ? "每行一个域名（CloudMailGen 必填）" : type === "inbucket" ? "每行一个基础域名，系统会自动生成随机子域名" : type === "moemail" ? "每行一个域名" : "每行一个域名，留空则使用服务默认域名"} className="min-h-20 rounded-xl border-stone-200 bg-white font-mono text-xs" disabled={config.enabled} />
+                        <Textarea value={domains} onChange={(event) => updateProvider(index, { domain: event.target.value.split(/[\n,]/).map((item) => item.trim()) })} placeholder={type === "cloudmail_gen" ? "每行一个域名（CloudMailGen 必填）" : type === "inbucket" ? "每行一个基础域名，系统会自动生成随机子域名" : type === "qqmail_imap" ? "每行一个已配置 Cloudflare 转发到 QQ 邮箱的域名" : type === "moemail" ? "每行一个域名" : "每行一个域名，留空则使用服务默认域名"} className="min-h-20 rounded-xl border-stone-200 bg-white font-mono text-xs" disabled={config.enabled} />
                       </div>
                     ) : null}
                     {type === "cloudmail_gen" ? (
@@ -447,6 +938,34 @@ export function RegisterCard() {
             <div className="flex items-center gap-2 border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
               <AlertTriangle className="size-4 shrink-0" />
               启动之前注意先保存配置。
+            </div>
+            <div className="space-y-3 border border-stone-200 bg-white/70 px-3 py-3">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <h3 className="text-sm font-semibold text-stone-900">手动 OTP</h3>
+                  <p className="mt-1 text-xs text-stone-500">manual 邮箱 provider 等待时，在这里提交验证码。</p>
+                </div>
+                <Button variant="outline" className="h-8 rounded-lg border-stone-200 bg-white px-3 text-xs text-stone-700" onClick={() => void refreshManualOTPWaiting()} disabled={manualOTPBusy}>
+                  {manualOTPBusy ? <LoaderCircle className="size-3.5 animate-spin" /> : <RotateCcw className="size-3.5" />}
+                  刷新
+                </Button>
+              </div>
+              {manualOTPWaiting.length ? (
+                <div className="space-y-2">
+                  {manualOTPWaiting.map((item) => (
+                    <div key={item.email} className="grid gap-2 md:grid-cols-[1fr_112px_auto]">
+                      <Input value={item.email} readOnly className="h-9 rounded-lg border-stone-200 bg-stone-50 text-xs" />
+                      <Input value={manualOTPCodes[item.email] || ""} onChange={(event) => setManualOTPCodes((state) => ({ ...state, [item.email]: event.target.value }))} className="h-9 rounded-lg border-stone-200 bg-white text-xs" placeholder="验证码" />
+                      <Button variant="outline" className="h-9 rounded-lg border-stone-200 bg-white px-3 text-xs text-stone-700" onClick={() => void submitManualOTPCode(item.email)} disabled={manualOTPBusy}>
+                        <Send className="size-3.5" />
+                        提交
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="rounded-lg bg-stone-50 px-3 py-2 text-xs text-stone-500">暂无等待手动输入验证码的邮箱。</div>
+              )}
             </div>
         </div>
 

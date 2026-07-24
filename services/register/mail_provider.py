@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import html
 import imaplib
 import json
 import random
@@ -28,6 +29,29 @@ _outlook_token_state_lock = Lock()
 OUTLOOK_IN_USE_STALE_SECONDS = 3600
 OUTLOOK_RECORDED_STATES = {"used", "in_use", "token_invalid", "failed"}
 OUTLOOK_UNAVAILABLE_STATES = {"used", "token_invalid", "failed"}
+IGNORED_OTP_CODES = {"177010"}
+OTP_RE = re.compile(r"(?<![#&])\b(\d{6})\b")
+OTP_CONTEXT_KEYWORDS = (
+    "code",
+    "verify",
+    "verification",
+    "verification code",
+    "your code",
+    "代码",
+    "验证",
+    "验证码",
+    "确认",
+    "確認",
+    "認証",
+    "認証コード",
+    "検証",
+    "確認コード",
+    "コード",
+    "인증",
+    "인증 코드",
+    "확인",
+    "확인 코드",
+)
 
 
 def _load_ddg_aliases() -> set[str]:
@@ -335,20 +359,101 @@ def _message_matches_email(data: dict[str, Any], email: str) -> bool:
     return not target or not candidates or any(target in str(item).strip().lower() for item in candidates if str(item).strip())
 
 
+def _strip_html_for_otp(value: str) -> str:
+    text = str(value or "")
+    if not text:
+        return ""
+    text = re.sub(r"<style[^>]*>.*?</style>", " ", text, flags=re.DOTALL | re.IGNORECASE)
+    text = re.sub(r"<script[^>]*>.*?</script>", " ", text, flags=re.DOTALL | re.IGNORECASE)
+    text = re.sub(r"<[^>]+>", " ", text)
+    return html.unescape(text)
+
+
+def _field_text(message: dict[str, Any], *keys: str) -> str:
+    for key in keys:
+        value: Any = message
+        for part in key.split("."):
+            if not isinstance(value, dict):
+                value = None
+                break
+            value = value.get(part)
+        if isinstance(value, str) and value.strip():
+            return value
+        if value is not None and not isinstance(value, (dict, list)):
+            text = str(value).strip()
+            if text:
+                return text
+    return ""
+
+
+def _otp_candidates(value: str) -> list[tuple[str, int]]:
+    return [
+        (match.group(1), match.start(1))
+        for match in OTP_RE.finditer(str(value or ""))
+        if match.group(1) not in IGNORED_OTP_CODES
+    ]
+
+
+def _contextual_otp(value: str) -> str | None:
+    text = str(value or "")
+    candidates = _otp_candidates(text)
+    if not candidates:
+        return None
+    lowered = text.lower()
+    scored: list[tuple[int, str]] = []
+    for code, index in candidates:
+        best_distance: int | None = None
+        for keyword in OTP_CONTEXT_KEYWORDS:
+            needle = keyword.lower()
+            start = 0
+            while True:
+                found = lowered.find(needle, start)
+                if found < 0:
+                    break
+                distance = min(abs(index - found), abs(index + 6 - (found + len(needle))))
+                if distance <= 80:
+                    best_distance = distance if best_distance is None else min(best_distance, distance)
+                start = found + 1
+        if best_distance is not None:
+            scored.append((best_distance, code))
+    if scored:
+        return sorted(scored, key=lambda item: item[0])[0][1]
+    return candidates[0][0]
+
+
 def _extract_code(message: dict[str, Any]) -> str | None:
-    content = f"{message.get('subject', '')}\n{message.get('text_content', '')}\n{message.get('html_content', '')}".strip()
+    subject = _field_text(message, "subject")
+    text_content = "\n".join(
+        item
+        for item in (
+            _field_text(message, "text_content", "text", "bodyPreview", "bodyText"),
+            _field_text(message, "raw.text", "raw.bodyPreview", "raw.bodyText"),
+        )
+        if item
+    )
+    html_content = "\n".join(
+        item
+        for item in (
+            _field_text(message, "html_content", "html", "content", "body", "body.content", "bodyHtml"),
+            _field_text(message, "raw.html", "raw.content", "raw.body", "raw.body.content", "raw.bodyHtml"),
+        )
+        if item
+    )
+    content = f"{subject}\n{text_content}\n{html_content}".strip()
     if not content:
         return None
     match = re.search(r"background-color:\s*#F3F3F3[^>]*>[\s\S]*?(\d{6})[\s\S]*?</p>", content, re.I)
-    if match:
+    if match and match.group(1) not in IGNORED_OTP_CODES:
         return match.group(1)
-    match = re.search(r"(?:Verification code|code is|代码为|验证码)[:\s]*(\d{6})", content, re.I)
-    if match and match.group(1) != "177010":
-        return match.group(1)
-    for code in re.findall(r">\s*(\d{6})\s*<|(?<![#&])\b(\d{6})\b", content):
-        value = code[0] or code[1]
-        if value and value != "177010":
-            return value
+
+    subject_codes = _otp_candidates(subject)
+    if len(subject_codes) == 1:
+        return subject_codes[0][0]
+
+    for body in (text_content, _strip_html_for_otp(html_content), _strip_html_for_otp(content)):
+        code = _contextual_otp(body)
+        if code:
+            return code
     return None
 
 
@@ -416,6 +521,46 @@ class BaseMailProvider:
 
     def close(self) -> None:
         pass
+
+
+class ManualMailProvider(BaseMailProvider):
+    name = "manual"
+
+    def __init__(self, entry: dict, conf: dict):
+        super().__init__(conf, str(entry.get("provider_ref") or ""))
+        self.mailboxes = [
+            line.strip()
+            for line in str(entry.get("mailboxes") or "").splitlines()
+            if line.strip() and not line.strip().startswith("#")
+        ]
+        self._index = 0
+
+    def create_mailbox(self, username: str | None = None) -> dict[str, Any]:
+        if self.mailboxes:
+            raw = self.mailboxes[self._index % len(self.mailboxes)]
+            self._index += 1
+            parts = [part.strip() for part in raw.replace("====", "----").split("----") if part.strip()]
+            address = parts[0] if parts else ""
+        else:
+            address = str(username or "").strip()
+        if not address or "@" not in address:
+            raise RuntimeError("manual 邮箱 provider 需要配置 mailboxes 或传入 username")
+        return {
+            "provider": self.name,
+            "provider_ref": self.provider_ref,
+            "address": address,
+            "label": "manual",
+            "_code_not_before": datetime.now(timezone.utc),
+        }
+
+    def wait_for_code(self, mailbox: dict[str, Any]) -> str | None:
+        from services.register import manual_otp
+
+        return manual_otp.wait_for_manual_otp(
+            str(mailbox.get("address") or "").strip(),
+            timeout=int(self.conf.get("wait_timeout") or 180),
+            provider_ref=self.provider_ref,
+        )
 
 
 class CloudflareTempMailProvider(BaseMailProvider):
@@ -903,6 +1048,111 @@ class GptMailProvider(BaseMailProvider):
         self.session.close()
 
 
+class GenericApiProvider(BaseMailProvider):
+    name = "generic_api"
+
+    def __init__(self, entry: dict, conf: dict):
+        super().__init__(conf, str(entry.get("provider_ref") or ""))
+        self.pool: list[dict[str, str]] = []
+        for raw in str(entry.get("mailboxes") or entry.get("accounts") or "").splitlines():
+            line = raw.strip()
+            if not line or line.startswith("#"):
+                continue
+            parts = line.split("----") if "----" in line else line.split("====")
+            parts = [part.strip() for part in parts]
+            if len(parts) >= 2 and "@" in parts[0] and parts[1].startswith(("http://", "https://")):
+                self.pool.append({"email": parts[0], "code_url": parts[1]})
+        self._index = 0
+
+    def create_mailbox(self, username: str | None = None) -> dict[str, Any]:
+        if not self.pool:
+            raise RuntimeError("generic_api 邮箱池为空，请按 email----code_url 导入")
+        item = self.pool[self._index % len(self.pool)]
+        self._index += 1
+        return {
+            "provider": self.name,
+            "provider_ref": self.provider_ref,
+            "address": item["email"],
+            "code_url": item["code_url"],
+            "_code_not_before": datetime.now(timezone.utc),
+        }
+
+    def wait_for_code(self, mailbox: dict[str, Any]) -> str | None:
+        code_url = str(mailbox.get("code_url") or "").strip()
+        if not code_url:
+            raise RuntimeError("generic_api mailbox missing code_url")
+        deadline = time.time() + self.conf["wait_timeout"]
+        while time.time() < deadline:
+            session = _create_session(self.conf)
+            try:
+                resp = session.get(code_url, headers={"accept": "application/json,text/plain,*/*", "user-agent": self.conf["user_agent"]}, timeout=self.conf["request_timeout"])
+                text = resp.text or ""
+                code = _extract_code({"subject": text[:200], "text_content": text, "html_content": text})
+                if code:
+                    return code
+            except Exception:
+                pass
+            finally:
+                session.close()
+            time.sleep(self.conf["wait_interval"])
+        return None
+
+
+class MailNestProvider(BaseMailProvider):
+    name = "mailnest"
+
+    def __init__(self, entry: dict, conf: dict):
+        super().__init__(conf, str(entry.get("provider_ref") or ""))
+        self.api_key = str(entry.get("api_key") or "").strip()
+        self.project_code = str(entry.get("project_code") or "chatgpt001").strip()
+        self.api_base = str(entry.get("api_base") or "https://mailnest.top").strip().rstrip("/")
+        self.session = _create_session(conf)
+        if not self.api_key:
+            raise RuntimeError("mailnest 需要配置 api_key")
+
+    def _request(self, method: str, path: str, payload: dict | None = None):
+        resp = self.session.request(
+            method.upper(),
+            f"{self.api_base}{path}",
+            json=payload,
+            headers={"authorization": f"Bearer {self.api_key}", "accept": "application/json"},
+            timeout=self.conf["request_timeout"],
+        )
+        data = resp.json()
+        if resp.status_code >= 400 or not isinstance(data, dict) or str(data.get("code")) != "00000":
+            raise RuntimeError(f"MailNest 请求失败: HTTP {resp.status_code}; {str(data)[:200]}")
+        return data.get("data")
+
+    def create_mailbox(self, username: str | None = None) -> dict[str, Any]:
+        data = self._request("POST", "/api/v1/email/temporary/buy", {"project_code": self.project_code, "count": 1})
+        if not isinstance(data, list) or not data:
+            raise RuntimeError("MailNest 响应缺少 data[0]")
+        address = str((data[0] or {}).get("email") or "").strip()
+        if not address:
+            raise RuntimeError("MailNest 响应缺少 email")
+        return {"provider": self.name, "provider_ref": self.provider_ref, "address": address, "_code_not_before": datetime.now(timezone.utc)}
+
+    def fetch_latest_message(self, mailbox: dict[str, Any]) -> dict[str, Any] | None:
+        data = self._request("POST", "/api/v1/email/receive", {"email": mailbox["address"]})
+        if not isinstance(data, list) or not data:
+            return None
+        item = data[0] if isinstance(data[0], dict) else {}
+        return {
+            "provider": self.name,
+            "mailbox": mailbox["address"],
+            "message_id": str(item.get("id") or item.get("mail_id") or ""),
+            "subject": str(item.get("subject") or item.get("title") or ""),
+            "sender": str(item.get("from") or item.get("sender") or ""),
+            "text_content": str(item.get("text") or item.get("content") or item.get("body") or item.get("code_match") or ""),
+            "html_content": str(item.get("html") or item.get("html_content") or ""),
+            "received_at": _parse_received_at(item.get("timestamp") or item.get("created_at") or item.get("date")),
+            "raw": item,
+        }
+
+    def close(self) -> None:
+        self.session.close()
+
+
 class MoEmailProvider(BaseMailProvider):
     name = "moemail"
 
@@ -1126,6 +1376,8 @@ OUTLOOK_GRAPH_MESSAGES_URL = "https://graph.microsoft.com/v1.0/me/messages"
 OUTLOOK_GRAPH_SCOPE = "offline_access https://graph.microsoft.com/Mail.Read"
 OUTLOOK_IMAP_SCOPE = "offline_access https://outlook.office.com/IMAP.AccessAsUser.All"
 OUTLOOK_DEFAULT_IMAP_HOST = "outlook.office365.com"
+QQMAIL_DEFAULT_IMAP_HOST = "imap.qq.com"
+QQMAIL_DEFAULT_IMAP_PORT = 993
 
 
 class OutlookTokenError(RuntimeError):
@@ -1428,6 +1680,161 @@ class OutlookTokenProvider(BaseMailProvider):
         return None
 
 
+class QQMailIMAPProvider(BaseMailProvider):
+    """Cloudflare 域名邮箱转发到 QQ 邮箱后，通过 QQ IMAP 收取 OpenAI OTP。"""
+
+    name = "qqmail_imap"
+
+    def __init__(self, entry: dict, conf: dict):
+        super().__init__(conf, str(entry.get("provider_ref") or ""))
+        self.label = str(entry.get("label") or self.provider_ref)
+        self.domain = _normalize_string_list(entry.get("domain") or entry.get("email_domain"))
+        self.imap_host = str(entry.get("imap_host") or QQMAIL_DEFAULT_IMAP_HOST).strip() or QQMAIL_DEFAULT_IMAP_HOST
+        try:
+            self.imap_port = max(1, int(entry.get("imap_port") or QQMAIL_DEFAULT_IMAP_PORT))
+        except (TypeError, ValueError):
+            self.imap_port = QQMAIL_DEFAULT_IMAP_PORT
+        self.qq_email = str(entry.get("qq_email") or entry.get("email") or "").strip()
+        self.imap_password = str(entry.get("imap_password") or entry.get("password") or "").strip()
+        try:
+            self.local_length = max(4, int(entry.get("local_length") or 8))
+        except (TypeError, ValueError):
+            self.local_length = 8
+        try:
+            self.message_limit = max(1, int(entry.get("message_limit") or 15))
+        except (TypeError, ValueError):
+            self.message_limit = 15
+
+    def create_mailbox(self, username: str | None = None) -> dict[str, Any]:
+        domain = _next_domain(self.domain)
+        local = str(username or "").strip().split("@", 1)[0]
+        if not local:
+            local = "".join(random.choices(string.ascii_lowercase + string.digits, k=self.local_length))
+        return {
+            "provider": self.name,
+            "provider_ref": self.provider_ref,
+            "address": f"{local}@{domain}",
+            "label": self.label,
+            "qq_email": self.qq_email,
+        }
+
+    def _connect(self) -> imaplib.IMAP4_SSL:
+        if not self.qq_email or not self.imap_password:
+            raise RuntimeError("QQMail IMAP 需要配置 qq_email 和 imap_password 授权码")
+        imap = imaplib.IMAP4_SSL(self.imap_host, self.imap_port)
+        try:
+            imap.login(self.qq_email, self.imap_password)
+            status, _ = imap.select("INBOX", readonly=True)
+            if status != "OK":
+                raise RuntimeError("QQMail IMAP select INBOX 失败")
+            return imap
+        except Exception:
+            try:
+                imap.logout()
+            except Exception:
+                pass
+            raise
+
+    @staticmethod
+    def _decode_header(value: str | None) -> str:
+        if not value:
+            return ""
+        try:
+            return str(make_header(decode_header(value)))
+        except Exception:
+            return str(value)
+
+    def _parse_imap_message(self, mailbox: dict[str, Any], raw: bytes) -> dict[str, Any]:
+        message = message_from_bytes(raw, policy=policy.default)
+        plain: list[str] = []
+        html_parts: list[str] = []
+        for part in (message.walk() if message.is_multipart() else [message]):
+            if part.get_content_maintype() == "multipart":
+                continue
+            disposition = str(part.get("Content-Disposition") or "").lower()
+            if "attachment" in disposition:
+                continue
+            try:
+                payload = part.get_content()
+            except Exception:
+                continue
+            if not payload:
+                continue
+            if part.get_content_type() == "text/html":
+                html_parts.append(str(payload))
+            else:
+                plain.append(str(payload))
+        return {
+            "provider": self.name,
+            "mailbox": mailbox["address"],
+            "message_id": self._decode_header(str(message.get("Message-ID") or "")),
+            "subject": self._decode_header(str(message.get("Subject") or "")),
+            "sender": self._decode_header(str(message.get("From") or "")),
+            "to": self._decode_header(str(message.get("To") or "")),
+            "text_content": "\n".join(plain).strip(),
+            "html_content": "\n".join(html_parts).strip(),
+            "received_at": _parse_received_at(str(message.get("Date") or "")),
+            "raw": None,
+        }
+
+    def fetch_recent_messages(self, mailbox: dict[str, Any]) -> list[dict[str, Any]]:
+        imap = self._connect()
+        try:
+            boundary = mailbox.get("_code_not_before")
+            criteria = "ALL"
+            if isinstance(boundary, datetime):
+                criteria = f'(SINCE {(boundary.replace(tzinfo=timezone.utc) if not boundary.tzinfo else boundary).strftime("%d-%b-%Y")})'
+            status, data = imap.search(None, criteria)
+            if status != "OK" or not data or not data[0]:
+                return []
+            ids = data[0].split()[-self.message_limit :]
+            messages: list[dict[str, Any]] = []
+            for mid in reversed(ids):
+                status, fetched = imap.fetch(mid, "(RFC822)")
+                if status != "OK":
+                    continue
+                raw_payload = next((part[1] for part in fetched if isinstance(part, tuple) and isinstance(part[1], bytes)), b"")
+                if raw_payload:
+                    messages.append(self._parse_imap_message(mailbox, raw_payload))
+            return messages
+        finally:
+            try:
+                imap.logout()
+            except Exception:
+                pass
+
+    def fetch_latest_message(self, mailbox: dict[str, Any]) -> dict[str, Any] | None:
+        messages = self.fetch_recent_messages(mailbox)
+        for message in messages:
+            if _message_matches_email(message, str(mailbox.get("address") or "")):
+                return message
+        return messages[0] if messages else None
+
+    def wait_for_code(self, mailbox: dict[str, Any]) -> str | None:
+        seen_value = mailbox.setdefault("_seen_code_message_refs", [])
+        if not isinstance(seen_value, list):
+            seen_value = []
+            mailbox["_seen_code_message_refs"] = seen_value
+        seen_refs = {str(item) for item in seen_value}
+        deadline = time.monotonic() + self.conf["wait_timeout"]
+        while time.monotonic() < deadline:
+            for message in self.fetch_recent_messages(mailbox):
+                if not _message_matches_email(message, str(mailbox.get("address") or "")):
+                    continue
+                if _message_before_code_boundary(mailbox, message):
+                    continue
+                ref = _message_tracking_ref(message)
+                if ref in seen_refs:
+                    continue
+                code = _extract_code(message)
+                if code:
+                    seen_value.append(ref)
+                    return code
+                seen_refs.add(ref)
+            time.sleep(max(0.2, self.conf["wait_interval"]))
+        return None
+
+
 def _entries(mail_config: dict) -> list[dict]:
     result: list[dict] = []
     counters: dict[str, int] = {}
@@ -1462,27 +1869,44 @@ def _next_entry(mail_config: dict) -> dict:
 def _create_provider(mail_config: dict, provider: str = "", provider_ref: str = "") -> BaseMailProvider:
     entry = next((dict(item) for item in _entries(mail_config) if provider_ref and item["provider_ref"] == provider_ref), None)
     entry = entry or next((dict(item) for item in _enabled_entries(mail_config) if provider and item["type"] == provider), None) or _next_entry(mail_config)
+    provider_type = str(entry["type"] or "").strip()
+    provider_type = {
+        "cloudmail": "cloudmail_gen",
+        "cloudflare": "cloudflare_temp_email",
+        "cloudflare_domain": "qqmail_imap",
+        "cf_temp_mail": "cloudflare_temp_email",
+        "outlook": "outlook_token",
+        "qqmail": "qqmail_imap",
+    }.get(provider_type, provider_type)
     conf = _config(mail_config)
-    if entry["type"] == "cloudmail_gen":
+    if provider_type == "cloudmail_gen":
         return CloudMailGenProvider(entry, conf)
-    if entry["type"] == "cloudflare_temp_email":
+    if provider_type == "manual":
+        return ManualMailProvider(entry, conf)
+    if provider_type == "cloudflare_temp_email":
         return CloudflareTempMailProvider(entry, conf)
-    if entry["type"] == "ddg_mail":
+    if provider_type == "ddg_mail":
         return DDGMailProvider(entry, conf)
-    if entry["type"] == "tempmail_lol":
+    if provider_type == "tempmail_lol":
         return TempMailLolProvider(entry, conf)
-    if entry["type"] == "duckmail":
+    if provider_type == "duckmail":
         return DuckMailProvider(entry, conf)
-    if entry["type"] == "gptmail":
+    if provider_type == "gptmail":
         return GptMailProvider(entry, conf)
-    if entry["type"] == "moemail":
+    if provider_type == "generic_api":
+        return GenericApiProvider(entry, conf)
+    if provider_type == "mailnest":
+        return MailNestProvider(entry, conf)
+    if provider_type == "moemail":
         return MoEmailProvider(entry, conf)
-    if entry["type"] == "inbucket":
+    if provider_type == "inbucket":
         return InbucketMailProvider(entry, conf)
-    if entry["type"] == "yyds_mail":
+    if provider_type == "yyds_mail":
         return YydsMailProvider(entry, conf)
-    if entry["type"] == "outlook_token":
+    if provider_type == "outlook_token":
         return OutlookTokenProvider(entry, conf)
+    if provider_type == "qqmail_imap":
+        return QQMailIMAPProvider(entry, conf)
     raise RuntimeError(f"不支持的 mail.provider: {entry['type']}")
 
 

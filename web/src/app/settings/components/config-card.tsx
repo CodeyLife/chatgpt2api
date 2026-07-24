@@ -42,6 +42,7 @@ export function ConfigCard() {
   const setSensitiveWordsText = useSettingsStore((state) => state.setSensitiveWordsText);
   const setAIReviewField = useSettingsStore((state) => state.setAIReviewField);
   const setImageStorageField = useSettingsStore((state) => state.setImageStorageField);
+  const setExtractLinkField = useSettingsStore((state) => state.setExtractLinkField);
   const testImageStorage = useSettingsStore((state) => state.testImageStorage);
   const syncImagesToWebDAV = useSettingsStore((state) => state.syncImagesToWebDAV);
   const isTestingImageStorage = useSettingsStore((state) => state.isTestingImageStorage);
@@ -238,6 +239,70 @@ export function ConfigCard() {
               disabled={!config?.image_settle_enabled}
             />
             <p className="text-xs text-stone-500">单位秒，找到图片后等待多久再次确认。需配合图片二次确认机制使用。</p>
+          </div>
+          <div className="space-y-3 md:col-span-2">
+            <div className="flex items-center gap-3 rounded-xl border border-stone-200 bg-white px-4 py-3">
+              <Checkbox
+                checked={Boolean(config?.extract_link?.enabled)}
+                onCheckedChange={(checked) => setExtractLinkField("enabled", Boolean(checked))}
+              />
+              <span className="text-sm text-stone-700">启用 Plus 试用提链服务</span>
+            </div>
+            <div className="grid gap-3 md:grid-cols-2">
+              <div className="space-y-2">
+                <label className="text-sm text-stone-700">提链服务地址</label>
+                <Input
+                  value={String(config?.extract_link?.api_base || "")}
+                  onChange={(event) => setExtractLinkField("api_base", event.target.value)}
+                  placeholder="https://extract.example.com"
+                  className="h-10 rounded-xl border-stone-200 bg-white"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm text-stone-700">提链 CDK</label>
+                <Input
+                  value={String(config?.extract_link?.cdk || "")}
+                  onChange={(event) => setExtractLinkField("cdk", event.target.value)}
+                  placeholder={config?.extract_link?.has_cdk ? "已保存，留空表示保留" : "CDK"}
+                  className="h-10 rounded-xl border-stone-200 bg-white"
+                />
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm text-stone-700">提链类型</label>
+                <Select
+                  value={String(config?.extract_link?.link_type || "pix")}
+                  onValueChange={(value) => setExtractLinkField("link_type", value)}
+                >
+                  <SelectTrigger className="h-10 rounded-xl border-stone-200 bg-white">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="pix">pix</SelectItem>
+                    <SelectItem value="upi">upi</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-2">
+                <label className="text-sm text-stone-700">提链并发 / 队列</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <Input
+                    value={String(config?.extract_link?.workers || "3")}
+                    onChange={(event) => setExtractLinkField("workers", event.target.value)}
+                    placeholder="workers"
+                    className="h-10 rounded-xl border-stone-200 bg-white"
+                  />
+                  <Input
+                    value={String(config?.extract_link?.queue_limit || "500")}
+                    onChange={(event) => setExtractLinkField("queue_limit", event.target.value)}
+                    placeholder="queue"
+                    className="h-10 rounded-xl border-stone-200 bg-white"
+                  />
+                </div>
+              </div>
+            </div>
+            <p className="text-xs leading-5 text-stone-500">
+              提链只保存到账号的 extract_link 字段，不参与当前 API 转发链路。CDK 属于敏感信息，账号页和导出默认只展示任务结果。
+            </p>
           </div>
           <div className="flex gap-4 md:col-span-2">
             <div className="flex-1 space-y-2">

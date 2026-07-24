@@ -29,6 +29,7 @@ import {
   type BackupState,
   type CPAPool,
   type CPARemoteFile,
+  type ExtractLinkSettings,
   type ImageStorageMode,
   type ImageStorageSettings,
   type ProxyRuntimeClearanceMode,
@@ -71,6 +72,18 @@ const DEFAULT_THIRD_PARTY_APPS: ThirdPartyAppsSettings = {
     enabled: false,
     url: "https://canvas.best",
   },
+};
+
+const DEFAULT_EXTRACT_LINK: ExtractLinkSettings = {
+  enabled: false,
+  api_base: "",
+  cdk: "",
+  has_cdk: false,
+  link_type: "pix",
+  workers: 3,
+  queue_limit: 500,
+  request_timeout: 30,
+  event_timeout: 180,
 };
 
 function normalizeProxyRuntime(value: unknown): ProxyRuntimeSettings {
@@ -125,6 +138,24 @@ function normalizeThirdPartyApps(value: unknown): ThirdPartyAppsSettings {
       enabled: Boolean(canvas.enabled),
       url: String(canvas.url || DEFAULT_THIRD_PARTY_APPS.infinite_canvas.url),
     },
+  };
+}
+
+function normalizeExtractLink(value: unknown): ExtractLinkSettings {
+  const source = typeof value === "object" && value !== null ? value as Partial<ExtractLinkSettings> : {};
+  const linkType = source.link_type === "upi" ? "upi" : "pix";
+  return {
+    ...DEFAULT_EXTRACT_LINK,
+    ...source,
+    enabled: Boolean(source.enabled),
+    api_base: String(source.api_base || ""),
+    cdk: String(source.cdk || ""),
+    has_cdk: Boolean(source.has_cdk),
+    link_type: linkType,
+    workers: Number(source.workers || DEFAULT_EXTRACT_LINK.workers),
+    queue_limit: Number(source.queue_limit || DEFAULT_EXTRACT_LINK.queue_limit),
+    request_timeout: Number(source.request_timeout || DEFAULT_EXTRACT_LINK.request_timeout),
+    event_timeout: Number(source.event_timeout || DEFAULT_EXTRACT_LINK.event_timeout),
   };
 }
 
@@ -210,6 +241,7 @@ function normalizeConfig(config: SettingsConfig): SettingsConfig {
     },
     proxy_runtime: normalizeProxyRuntime(config.proxy_runtime),
     third_party_apps: normalizeThirdPartyApps(config.third_party_apps),
+    extract_link: normalizeExtractLink(config.extract_link),
     backup: {
       ...backup,
       enabled: Boolean(backup.enabled),
@@ -325,6 +357,7 @@ type SettingsStore = {
   setProxyRuntimeClearanceField: <K extends keyof ProxyRuntimeSettings["clearance"]>(key: K, value: ProxyRuntimeSettings["clearance"][K]) => void;
   setProxyRuntimeStatusCodesText: (value: string) => void;
   setInfiniteCanvasField: <K extends keyof ThirdPartyAppsSettings["infinite_canvas"]>(key: K, value: ThirdPartyAppsSettings["infinite_canvas"][K]) => void;
+  setExtractLinkField: <K extends keyof ExtractLinkSettings>(key: K, value: ExtractLinkSettings[K]) => void;
   testImageStorage: () => Promise<void>;
   syncImagesToWebDAV: () => Promise<void>;
   setBackupField: (key: keyof BackupSettings, value: string | boolean) => void;
@@ -332,6 +365,7 @@ type SettingsStore = {
 
   loadRegister: (silent?: boolean) => Promise<void>;
   setRegisterConfig: (config: RegisterConfig) => void;
+  setRegisterDriver: (value: string) => void;
   setRegisterProxy: (value: string) => void;
   setRegisterTotal: (value: string) => void;
   setRegisterThreads: (value: string) => void;
@@ -346,6 +380,10 @@ type SettingsStore = {
   setRegisterNewAccountMaxVerifyWorkers: (value: string) => void;
   setRegisterCodexAgentIdentityEnabled: (value: boolean) => void;
   setRegisterCodexAgentIdentityVerifyTask: (value: boolean) => void;
+  setRegisterCodexOAuthEnabled: (value: boolean) => void;
+  setRegisterCodexOAuthViaCPA: (value: boolean) => void;
+  setRegisterCodexOAuthCPAPoolId: (value: string) => void;
+  setRegisterNestedField: (section: "chatgpt_web" | "browser_use" | "skyvern" | "roxy" | "cloak" | "sms" | "flow_trigger" | "humanize" | "profile", key: string, value: unknown) => void;
   setRegisterMailField: (key: "request_timeout" | "wait_timeout" | "wait_interval", value: string) => void;
   setRegisterMailApiUseRegisterProxy: (value: boolean) => void;
   addRegisterProvider: () => void;
@@ -516,6 +554,16 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
             enabled: Boolean(config.third_party_apps?.infinite_canvas?.enabled),
             url: String(config.third_party_apps?.infinite_canvas?.url || DEFAULT_THIRD_PARTY_APPS.infinite_canvas.url).trim(),
           },
+        },
+        extract_link: {
+          enabled: Boolean(config.extract_link?.enabled),
+          api_base: String(config.extract_link?.api_base || "").trim().replace(/\/+$/, ""),
+          cdk: String(config.extract_link?.cdk || "").trim(),
+          link_type: config.extract_link?.link_type === "upi" ? "upi" : "pix",
+          workers: Math.max(1, Number(config.extract_link?.workers) || 3),
+          queue_limit: Math.max(1, Number(config.extract_link?.queue_limit) || 500),
+          request_timeout: Math.max(5, Number(config.extract_link?.request_timeout) || 30),
+          event_timeout: Math.max(30, Number(config.extract_link?.event_timeout) || 180),
         },
         backup: {
           ...(config.backup as BackupSettings),
@@ -767,6 +815,24 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     });
   },
 
+  setExtractLinkField: (key, value) => {
+    set((state) => {
+      if (!state.config) {
+        return {};
+      }
+      const extractLink = normalizeExtractLink(state.config.extract_link);
+      return {
+        config: {
+          ...state.config,
+          extract_link: {
+            ...extractLink,
+            [key]: value,
+          },
+        },
+      };
+    });
+  },
+
   testImageStorage: async () => {
     set({ isTestingImageStorage: true });
     try {
@@ -923,6 +989,10 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     set({ registerConfig: config, isLoadingRegister: false });
   },
 
+  setRegisterDriver: (value) => {
+    set((state) => state.registerConfig ? { registerConfig: { ...state.registerConfig, registration_driver: value } } : {});
+  },
+
   setRegisterProxy: (value) => {
     set((state) => state.registerConfig ? { registerConfig: { ...state.registerConfig, proxy: value } } : {});
   },
@@ -977,6 +1047,30 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
 
   setRegisterCodexAgentIdentityVerifyTask: (value) => {
     set((state) => state.registerConfig ? { registerConfig: { ...state.registerConfig, codex_agent_identity_verify_task: value } } : {});
+  },
+
+  setRegisterCodexOAuthEnabled: (value) => {
+    set((state) => state.registerConfig ? { registerConfig: { ...state.registerConfig, codex_oauth_enabled: value } } : {});
+  },
+
+  setRegisterCodexOAuthViaCPA: (value) => {
+    set((state) => state.registerConfig ? { registerConfig: { ...state.registerConfig, codex_oauth_via_cpa: value } } : {});
+  },
+
+  setRegisterCodexOAuthCPAPoolId: (value) => {
+    set((state) => state.registerConfig ? { registerConfig: { ...state.registerConfig, codex_oauth_cpa_pool_id: value } } : {});
+  },
+
+  setRegisterNestedField: (section, key, value) => {
+    set((state) => state.registerConfig ? {
+      registerConfig: {
+        ...state.registerConfig,
+        [section]: {
+          ...(state.registerConfig[section] || {}),
+          [key]: value,
+        },
+      },
+    } : {});
   },
 
   setRegisterMailField: (key, value) => {
@@ -1039,6 +1133,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     try {
       set({ isSavingRegister: true });
       const data = await updateRegisterConfig({
+        registration_driver: registerConfig.registration_driver || "platform_oauth",
         mail: registerConfig.mail,
         proxy: registerConfig.proxy.trim(),
         total: Math.max(1, Number(registerConfig.total) || 1),
@@ -1060,6 +1155,17 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
         sentinel_browser_fallback: registerConfig.sentinel_browser_fallback !== false,
         codex_agent_identity_enabled: Boolean(registerConfig.codex_agent_identity_enabled),
         codex_agent_identity_verify_task: registerConfig.codex_agent_identity_verify_task !== false,
+        codex_oauth_enabled: Boolean(registerConfig.codex_oauth_enabled),
+        codex_oauth_via_cpa: registerConfig.codex_oauth_via_cpa !== false,
+        codex_oauth_cpa_pool_id: registerConfig.codex_oauth_cpa_pool_id || "",
+        humanize: registerConfig.humanize || {},
+        profile: registerConfig.profile || {},
+        flow_trigger: registerConfig.flow_trigger || {},
+        browser_use: registerConfig.browser_use || {},
+        skyvern: registerConfig.skyvern || {},
+        roxy: registerConfig.roxy || {},
+        cloak: registerConfig.cloak || {},
+        sms: registerConfig.sms || {},
         new_account_warmup_minutes: Math.max(0, Number(registerConfig.new_account_warmup_minutes) || 0),
         new_account_verify_delay_seconds: Math.max(0, Number(registerConfig.new_account_verify_delay_seconds) || 0),
         new_account_max_verify_workers: Math.max(1, Number(registerConfig.new_account_max_verify_workers) || 2),
@@ -1080,6 +1186,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     try {
       if (!registerConfig.enabled) {
         await updateRegisterConfig({
+          registration_driver: registerConfig.registration_driver || "platform_oauth",
           mail: registerConfig.mail,
           proxy: registerConfig.proxy.trim(),
           total: Math.max(1, Number(registerConfig.total) || 1),
@@ -1101,6 +1208,17 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
           sentinel_browser_fallback: registerConfig.sentinel_browser_fallback !== false,
           codex_agent_identity_enabled: Boolean(registerConfig.codex_agent_identity_enabled),
           codex_agent_identity_verify_task: registerConfig.codex_agent_identity_verify_task !== false,
+          codex_oauth_enabled: Boolean(registerConfig.codex_oauth_enabled),
+          codex_oauth_via_cpa: registerConfig.codex_oauth_via_cpa !== false,
+          codex_oauth_cpa_pool_id: registerConfig.codex_oauth_cpa_pool_id || "",
+          humanize: registerConfig.humanize || {},
+          profile: registerConfig.profile || {},
+          flow_trigger: registerConfig.flow_trigger || {},
+            browser_use: registerConfig.browser_use || {},
+            skyvern: registerConfig.skyvern || {},
+            roxy: registerConfig.roxy || {},
+            cloak: registerConfig.cloak || {},
+            sms: registerConfig.sms || {},
           new_account_warmup_minutes: Math.max(0, Number(registerConfig.new_account_warmup_minutes) || 0),
           new_account_verify_delay_seconds: Math.max(0, Number(registerConfig.new_account_verify_delay_seconds) || 0),
           new_account_max_verify_workers: Math.max(1, Number(registerConfig.new_account_max_verify_workers) || 2),

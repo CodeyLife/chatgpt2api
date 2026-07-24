@@ -47,6 +47,24 @@ def _merge_outlook_pool(old_text: str, new_text: str) -> str:
     return _serialize_outlook_pool(list(merged.values()))
 
 
+def _provider_type(provider: dict) -> str:
+    return str(provider.get("type") or "").strip()
+
+
+RUNTIME_SECRET_FIELDS = {
+    "flow_trigger": ("bearer", "cookie"),
+    "browser_use": ("api_key",),
+    "skyvern": ("api_key",),
+    "roxy": ("api_token",),
+    "cloak": ("license_key",),
+    "sms": ("api_key", "l_admin_auth_code", "h_admin_auth_code"),
+}
+
+
+def _has_secret_key(field: str) -> str:
+    return f"has_{field}"
+
+
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -85,10 +103,14 @@ def _safe_bool(value: object, fallback: bool) -> bool:
 
 
 def _normalize(raw: dict) -> dict:
-    cfg = _default_config()
+    default_cfg = _default_config()
+    cfg = {**default_cfg}
     cfg.update({k: v for k, v in raw.items() if k not in {"stats", "logs"}})
     cfg["total"] = max(1, int(cfg.get("total") or 1))
     cfg["threads"] = max(1, int(cfg.get("threads") or 1))
+    driver_names = {item.get("name") for item in openai_register.list_drivers()}
+    registration_driver = str(cfg.get("registration_driver") or "platform_oauth").strip().lower()
+    cfg["registration_driver"] = registration_driver if registration_driver in driver_names else "platform_oauth"
     cfg["mode"] = str(cfg.get("mode") or "total").strip() if str(cfg.get("mode") or "total").strip() in {"total", "quota", "available"} else "total"
     cfg["target_quota"] = max(1, int(cfg.get("target_quota") or 1))
     cfg["target_available"] = max(1, int(cfg.get("target_available") or 1))
@@ -103,17 +125,69 @@ def _normalize(raw: dict) -> dict:
     cfg["sentinel_browser_fallback"] = _safe_bool(cfg.get("sentinel_browser_fallback"), True)
     cfg["codex_agent_identity_enabled"] = _safe_bool(cfg.get("codex_agent_identity_enabled"), False)
     cfg["codex_agent_identity_verify_task"] = _safe_bool(cfg.get("codex_agent_identity_verify_task"), True)
+    cfg["codex_oauth_enabled"] = _safe_bool(cfg.get("codex_oauth_enabled"), False)
+    cfg["codex_oauth_via_cpa"] = _safe_bool(cfg.get("codex_oauth_via_cpa"), True)
+    cfg["codex_oauth_cpa_pool_id"] = str(cfg.get("codex_oauth_cpa_pool_id") or "").strip()
+    for section in ("chatgpt_web", "browser_use", "skyvern", "roxy", "cloak", "sms", "flow_trigger", "humanize", "profile"):
+        defaults = default_cfg.get(section) if isinstance(default_cfg.get(section), dict) else {}
+        current = cfg.get(section) if isinstance(cfg.get(section), dict) else {}
+        cfg[section] = {**defaults, **current}
+    chatgpt_web = cfg["chatgpt_web"]
+    chatgpt_web["bootstrap_enabled"] = _safe_bool(chatgpt_web.get("bootstrap_enabled"), True)
+    chatgpt_web["bootstrap_strict"] = _safe_bool(chatgpt_web.get("bootstrap_strict"), False)
+    humanize = cfg["humanize"]
+    humanize["enabled"] = _safe_bool(humanize.get("enabled"), True)
+    try:
+        humanize["factor"] = max(0.0, float(humanize.get("factor") if humanize.get("factor") is not None else 1.0))
+    except (TypeError, ValueError):
+        humanize["factor"] = 1.0
+    if not isinstance(humanize.get("delays"), dict):
+        humanize["delays"] = {}
+    profile = cfg["profile"]
+    try:
+        profile["min_age"] = max(13, int(profile.get("min_age") if profile.get("min_age") is not None else 18))
+    except (TypeError, ValueError):
+        profile["min_age"] = 18
+    try:
+        profile["max_age"] = max(profile["min_age"], int(profile.get("max_age") if profile.get("max_age") is not None else 65))
+    except (TypeError, ValueError):
+        profile["max_age"] = max(profile["min_age"], 65)
+    flow = cfg["flow_trigger"]
+    sms = cfg["sms"]
+    sms["enabled"] = _safe_bool(sms.get("enabled"), False)
+    flow["enabled"] = _safe_bool(flow.get("enabled"), False)
+    flow["url"] = str(flow.get("url") or "").strip()
+    flow["bearer"] = str(flow.get("bearer") or "").strip()
+    flow["cookie"] = str(flow.get("cookie") or "").strip()
+    flow["access_token_key"] = str(flow.get("access_token_key") or "access_token").strip() or "access_token"
+    try:
+        flow["timeout"] = max(1, int(flow.get("timeout") if flow.get("timeout") is not None else 30))
+    except (TypeError, ValueError):
+        flow["timeout"] = 30
+    flow["origin"] = str(flow.get("origin") or "").strip()
+    flow["referer"] = str(flow.get("referer") or "").strip()
+    flow["user_agent"] = str(flow.get("user_agent") or "").strip()
+    flow["use_register_proxy"] = _safe_bool(flow.get("use_register_proxy"), False)
+    flow["verify_ssl"] = _safe_bool(flow.get("verify_ssl"), True)
+    if isinstance(flow.get("payload"), str):
+        try:
+            parsed_payload = json.loads(str(flow.get("payload") or "{}"))
+            flow["payload"] = parsed_payload if isinstance(parsed_payload, dict) else {}
+        except Exception:
+            flow["payload"] = {}
+    elif not isinstance(flow.get("payload"), dict):
+        flow["payload"] = {}
     cfg["new_account_warmup_minutes"] = max(0, int(cfg.get("new_account_warmup_minutes") if cfg.get("new_account_warmup_minutes") is not None else 30))
     cfg["new_account_verify_delay_seconds"] = max(0, int(cfg.get("new_account_verify_delay_seconds") if cfg.get("new_account_verify_delay_seconds") is not None else 120))
     cfg["new_account_max_verify_workers"] = max(1, int(cfg.get("new_account_max_verify_workers") if cfg.get("new_account_max_verify_workers") is not None else 2))
     cfg["proxy"] = str(cfg.get("proxy") or "").strip()
-    default_mail = _default_config()["mail"] if isinstance(_default_config().get("mail"), dict) else {}
+    default_mail = default_cfg["mail"] if isinstance(default_cfg.get("mail"), dict) else {}
     mail = cfg.get("mail") if isinstance(cfg.get("mail"), dict) else {}
     cfg["mail"] = {**default_mail, **mail}
     cfg["mail"]["api_use_register_proxy"] = _safe_bool(cfg["mail"].get("api_use_register_proxy"), True)
     cfg["mail"].pop("proxy", None)
     cfg["enabled"] = bool(cfg.get("enabled"))
-    stats = {**_default_config()["stats"], **(raw.get("stats") if isinstance(raw.get("stats"), dict) else {}),
+    stats = {**default_cfg["stats"], **(raw.get("stats") if isinstance(raw.get("stats"), dict) else {}),
              "threads": cfg["threads"]}
     cfg["stats"] = stats
     return cfg
@@ -143,9 +217,10 @@ class RegisterService:
     def get(self) -> dict:
         with self._lock:
             # logs 是只读追加列表，浅拷贝即可（条目写入后不会被修改）
-            # config 需要深拷贝，因为 _redact_outlook_pools 会修改嵌套 dict。
+            # config 需要深拷贝，因为 _redact_public_secrets 会修改嵌套 dict。
             snapshot = {**json.loads(json.dumps(self._config, ensure_ascii=False)), "logs": list(self._logs[-300:])}
-        self._redact_outlook_pools(snapshot)
+            snapshot["drivers"] = openai_register.list_drivers()
+        self._redact_public_secrets(snapshot)
         return snapshot
 
     @staticmethod
@@ -156,10 +231,14 @@ class RegisterService:
         masked = (local[:2] + "***" + local[-1:]) if len(local) > 2 else (local[:1] + "***")
         return f"{masked}@{domain}"
 
-    def _redact_outlook_pools(self, snapshot: dict) -> None:
-        """把 outlook_token 邮箱池里的密码/refresh_token 从对外输出中抹掉，仅保留脱敏预览与统计。
+    def _redact_public_secrets(self, snapshot: dict) -> None:
+        self._redact_mail_provider_secrets(snapshot)
+        self._redact_runtime_secrets(snapshot)
 
-        mailboxes 改为只写导入框（输出为空），避免把密码与 refresh_token 通过 GET/SSE 反复广播。
+    def _redact_mail_provider_secrets(self, snapshot: dict) -> None:
+        """把邮箱 provider 敏感字段从对外输出中抹掉，仅保留脱敏预览与统计。
+
+        mailboxes/授权码改为只写输入框，避免通过 GET/SSE 反复广播。
         """
         mail = snapshot.get("mail")
         if not isinstance(mail, dict):
@@ -168,20 +247,38 @@ class RegisterService:
         if not isinstance(providers, list):
             return
         for provider in providers:
-            if not isinstance(provider, dict) or provider.get("type") != "outlook_token":
+            if not isinstance(provider, dict):
                 continue
-            credentials = mail_provider.parse_outlook_credentials(str(provider.get("mailboxes") or ""))
-            provider["mailboxes"] = ""
-            provider["mailboxes_count"] = len(credentials)
-            provider["mailboxes_preview"] = [self._mask_email(c["email"]) for c in credentials]
-            provider["mailboxes_stats"] = mail_provider.outlook_token_pool_stats(credentials)
+            provider_type = _provider_type(provider)
+            if provider_type == "outlook_token":
+                credentials = mail_provider.parse_outlook_credentials(str(provider.get("mailboxes") or ""))
+                provider["mailboxes"] = ""
+                provider["mailboxes_count"] = len(credentials)
+                provider["mailboxes_preview"] = [self._mask_email(c["email"]) for c in credentials]
+                provider["mailboxes_stats"] = mail_provider.outlook_token_pool_stats(credentials)
+            if provider_type == "qqmail_imap":
+                imap_password = str(provider.get("imap_password") or provider.get("password") or "").strip()
+                provider["imap_password"] = ""
+                provider.pop("password", None)
+                provider["has_imap_password"] = bool(imap_password)
+
+    def _redact_runtime_secrets(self, snapshot: dict) -> None:
+        """隐藏注册运行时配置里的令牌/授权码，保留是否已配置的标记。"""
+        for section, fields in RUNTIME_SECRET_FIELDS.items():
+            values = snapshot.get(section)
+            if not isinstance(values, dict):
+                continue
+            for field in fields:
+                secret = str(values.get(field) or "").strip()
+                values[field] = ""
+                values[_has_secret_key(field)] = bool(secret)
 
     def _drop_mail_proxy(self) -> None:
         if isinstance(self._config.get("mail"), dict):
             self._config["mail"].pop("proxy", None)
 
-    def _merge_outlook_pools(self, updates: dict) -> None:
-        """对 outlook_token provider：把前端新导入的 mailboxes 与已存池按邮箱合并去重。
+    def _merge_mail_provider_secrets(self, updates: dict) -> None:
+        """合并/保留邮箱 provider 的只写敏感字段。
 
         前端 mailboxes 是只写导入框，留空表示不改动；填入的新行追加/覆盖已存凭据。
         按数组下标与已存的同类型 provider 对齐。
@@ -192,14 +289,38 @@ class RegisterService:
         old_mail = self._config.get("mail") if isinstance(self._config.get("mail"), dict) else {}
         old_providers = old_mail.get("providers") if isinstance(old_mail.get("providers"), list) else []
         for index, provider in enumerate(mail["providers"]):
-            if not isinstance(provider, dict) or provider.get("type") != "outlook_token":
+            if not isinstance(provider, dict):
                 continue
+            provider_type = _provider_type(provider)
             old = old_providers[index] if index < len(old_providers) and isinstance(old_providers[index], dict) else {}
-            old_text = str(old.get("mailboxes") or "") if old.get("type") == "outlook_token" else ""
-            new_text = str(provider.get("mailboxes") or "")
-            provider["mailboxes"] = _merge_outlook_pool(old_text, new_text) if (old_text or new_text) else ""
-            for key in ("mailboxes_count", "mailboxes_preview", "mailboxes_stats"):
-                provider.pop(key, None)
+            if provider_type == "outlook_token":
+                old_text = str(old.get("mailboxes") or "") if _provider_type(old) == "outlook_token" else ""
+                new_text = str(provider.get("mailboxes") or "")
+                provider["mailboxes"] = _merge_outlook_pool(old_text, new_text) if (old_text or new_text) else ""
+                for key in ("mailboxes_count", "mailboxes_preview", "mailboxes_stats"):
+                    provider.pop(key, None)
+            if provider_type == "qqmail_imap":
+                old_password = str(old.get("imap_password") or old.get("password") or "") if _provider_type(old) == "qqmail_imap" else ""
+                new_password = str(provider.get("imap_password") or provider.get("password") or "")
+                if not new_password.strip() and bool(provider.get("has_imap_password")) and old_password:
+                    provider["imap_password"] = old_password
+                provider.pop("password", None)
+                provider.pop("has_imap_password", None)
+
+    def _merge_runtime_secrets(self, updates: dict) -> None:
+        """前端带 has_* 且密钥留空时，保留已有运行时密钥。"""
+        for section, fields in RUNTIME_SECRET_FIELDS.items():
+            incoming = updates.get(section)
+            if not isinstance(incoming, dict):
+                continue
+            old = self._config.get(section) if isinstance(self._config.get(section), dict) else {}
+            for field in fields:
+                has_key = _has_secret_key(field)
+                incoming_value = str(incoming.get(field) or "").strip()
+                old_value = old.get(field) if isinstance(old, dict) else ""
+                if not incoming_value and bool(incoming.get(has_key)) and str(old_value or "").strip():
+                    incoming[field] = old_value
+                incoming.pop(has_key, None)
 
     def _prune_unused_outlook_pools(self) -> int:
         mail = self._config.get("mail")
@@ -223,7 +344,8 @@ class RegisterService:
 
     def update(self, updates: dict) -> dict:
         with self._lock:
-            self._merge_outlook_pools(updates)
+            self._merge_mail_provider_secrets(updates)
+            self._merge_runtime_secrets(updates)
             self._config = _normalize({**self._config, **updates})
             self._drop_mail_proxy()
             openai_register.config.update(_runtime_config_payload(self._config))

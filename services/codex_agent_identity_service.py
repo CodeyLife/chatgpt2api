@@ -152,6 +152,18 @@ def access_token_claims(access_token: str) -> dict[str, Any]:
     }
 
 
+def _require_chatgpt_session_delegator(access_token: str, token_claims: dict[str, Any]) -> None:
+    if token_claims.get("account_id") and token_claims.get("chatgpt_user_id"):
+        return
+    token_kind = "Platform OAuth opaque token" if access_token.startswith("token:") else "token missing ChatGPT account claims"
+    raise CodexAgentIdentityError(
+        "Codex Agent Identity requires a ChatGPT Web session accessToken from "
+        "https://chatgpt.com/api/auth/session; current token is "
+        f"{token_kind}. The platform.openai.com OAuth token used by the auto-register flow "
+        "is rejected by AuthAPI as unsupported_agent_delegator."
+    )
+
+
 def _merge_claims(token_claims: dict[str, Any], metadata_claims: dict[str, Any]) -> dict[str, Any]:
     token_has_account_claims = bool(token_claims.get("account_id") or token_claims.get("chatgpt_user_id"))
     return {
@@ -204,6 +216,46 @@ def _raise_for_upstream_error(response: Any, action: str) -> None:
     raise CodexAgentIdentityError(f"{action} failed: {response.status_code} {body}")
 
 
+def _response_content_type(response: Any) -> str:
+    headers = getattr(response, "headers", None)
+    if isinstance(headers, dict):
+        return str(headers.get("content-type") or headers.get("Content-Type") or "").strip()
+    try:
+        return str(headers.get("content-type") or headers.get("Content-Type") or "").strip()
+    except Exception:
+        return ""
+
+
+def _response_text_snippet(response: Any, limit: int = 600) -> str:
+    body = str(getattr(response, "text", "") or "").strip()
+    if not body:
+        raw = getattr(response, "content", b"")
+        if isinstance(raw, (bytes, bytearray)):
+            try:
+                body = bytes(raw).decode("utf-8", errors="replace").strip()
+            except Exception:
+                body = ""
+    body = _redact_sensitive(body)
+    if len(body) > limit:
+        body = body[:limit] + "..."
+    return body
+
+
+def _parse_json_response(response: Any, action: str) -> dict[str, Any]:
+    try:
+        data = response.json()
+    except Exception as exc:
+        status = int(getattr(response, "status_code", 0) or 0)
+        content_type = _response_content_type(response) or "unknown"
+        body = _response_text_snippet(response)
+        raise CodexAgentIdentityError(
+            f"{action} returned invalid JSON: status={status} content_type={content_type} body={body or '[empty]'}"
+        ) from exc
+    if not isinstance(data, dict):
+        raise CodexAgentIdentityError(f"{action} returned non-object JSON")
+    return data
+
+
 def _redact_sensitive(value: str) -> str:
     patterns = (
         r'(?i)("?(?:access_token|accessToken|agent_private_key|signature|authorization)"?\s*[:=]\s*)"[^"\n\r&]{6,}"',
@@ -220,6 +272,7 @@ def register_agent(access_token: str, public_key_ssh: str) -> str:
         f"{AUTHAPI_BASE}/v1/agent/register",
         headers={
             "Content-Type": "application/json",
+            "Accept": "application/json",
             "Authorization": f"Bearer {access_token}",
             "User-Agent": USER_AGENT,
         },
@@ -235,10 +288,13 @@ def register_agent(access_token: str, public_key_ssh: str) -> str:
         timeout=15,
     )
     _raise_for_upstream_error(response, "Agent registration")
-    data = response.json()
+    data = _parse_json_response(response, "Agent registration")
     agent_runtime_id = str(data.get("agent_runtime_id") or "").strip()
     if not agent_runtime_id:
-        raise CodexAgentIdentityError("Agent registration response missing agent_runtime_id")
+        body = _response_text_snippet(response) or "[empty]"
+        raise CodexAgentIdentityError(
+            f"Agent registration response missing agent_runtime_id: {body}"
+        )
     return agent_runtime_id
 
 
@@ -254,6 +310,7 @@ def register_task(access_token: str, agent_runtime_id: str, private_key_pkcs8_b6
         f"{AUTHAPI_BASE}/v1/agent/{agent_runtime_id}/task/register",
         headers={
             "Content-Type": "application/json",
+            "Accept": "application/json",
             "Authorization": f"Bearer {access_token}",
             "User-Agent": USER_AGENT,
         },
@@ -265,7 +322,7 @@ def register_task(access_token: str, agent_runtime_id: str, private_key_pkcs8_b6
         timeout=15,
     )
     _raise_for_upstream_error(response, "Task registration")
-    data = response.json()
+    data = _parse_json_response(response, "Task registration")
     return str(data.get("encrypted_task_id") or "").strip()
 
 
@@ -293,7 +350,9 @@ def create_agent_identity(
     if not access_token:
         raise CodexAgentIdentityError("access_token is required")
 
-    claims = _merge_claims(access_token_claims(access_token), _session_metadata_claims(metadata))
+    token_claims = access_token_claims(access_token)
+    _require_chatgpt_session_delegator(access_token, token_claims)
+    claims = _merge_claims(token_claims, _session_metadata_claims(metadata))
 
     private_key_b64, public_key_ssh = generate_ed25519_keypair()
     agent_runtime_id = register_agent(access_token, public_key_ssh)

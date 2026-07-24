@@ -17,6 +17,7 @@ import {
   Pencil,
   RefreshCw,
   Search,
+  Send,
   Trash2,
   UserRound,
 } from "lucide-react";
@@ -35,6 +36,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
@@ -46,16 +48,25 @@ import {
   deleteAccounts,
   exportAccounts,
   fetchAccounts,
+  fetchAccountCodexOAuthRetry,
+  fetchCPAPools,
   fetchModels,
   fetchRefreshProgress,
   fetchReLoginProgress,
   reLoginAccounts,
   refreshAccounts,
+  startExtractLink,
+  startAccountPlanCheck,
+  startAccountCodexOAuthRetry,
+  submitAccountCodexOAuthCallback,
   testProxy,
   updateAccount,
+  updateAccountNotes,
+  captureAccountCodexOAuthCallback,
   type Account,
   type AccountRefreshResponse,
   type AccountStatus,
+  type CPAPool,
   type Model,
   type RefreshProgressResponse,
 } from "@/lib/api";
@@ -76,6 +87,21 @@ const identityFilterOptions = [
   { label: "全部身份", value: "all" },
   { label: "Codex Agent Identity", value: "agent_identity" },
   { label: "无 Agent Identity", value: "no_agent_identity" },
+] as const;
+
+const extractLinkFilterOptions = [
+  { label: "全部提链", value: "all" },
+  { label: "提链成功", value: "success" },
+  { label: "提链中", value: "running" },
+  { label: "提链失败", value: "failed" },
+  { label: "未提链", value: "none" },
+] as const;
+
+const codexOAuthBrowserProviderOptions = [
+  { label: "BrowserUse", value: "browser_use" },
+  { label: "Skyvern", value: "skyvern" },
+  { label: "Roxy", value: "roxy" },
+  { label: "Cloak", value: "cloak" },
 ] as const;
 
 const statusMeta: Record<
@@ -196,16 +222,25 @@ function AccountsPageContent() {
   const didLoadRef = useRef(false);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [availableModels, setAvailableModels] = useState<Model[]>([]);
+  const [cpaPools, setCpaPools] = useState<CPAPool[]>([]);
+  const [selectedCpaPoolId, setSelectedCpaPoolId] = useState("");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [query, setQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState<AccountStatus | "all">("all");
   const [identityFilter, setIdentityFilter] = useState<(typeof identityFilterOptions)[number]["value"]>("all");
+  const [extractLinkFilter, setExtractLinkFilter] = useState<(typeof extractLinkFilterOptions)[number]["value"]>("all");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState("10");
   const [editingAccount, setEditingAccount] = useState<Account | null>(null);
+  const [bulkNoteOpen, setBulkNoteOpen] = useState(false);
+  const [bulkNoteText, setBulkNoteText] = useState("");
+  const [codexCallbackAccount, setCodexCallbackAccount] = useState<Account | null>(null);
+  const [codexCallbackInput, setCodexCallbackInput] = useState("");
+  const [codexBrowserProvider, setCodexBrowserProvider] = useState<(typeof codexOAuthBrowserProviderOptions)[number]["value"]>("browser_use");
   const [editStatus, setEditStatus] = useState<AccountStatus>("正常");
   const [editProxy, setEditProxy] = useState("");
+  const [editNote, setEditNote] = useState("");
   const [isTestingProxy, setIsTestingProxy] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingModels, setIsLoadingModels] = useState(true);
@@ -213,7 +248,13 @@ function AccountsPageContent() {
   const [refreshingTokens, setRefreshingTokens] = useState<Set<string>>(new Set());
   const [isDeleting, setIsDeleting] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
+  const [isUpdatingNotes, setIsUpdatingNotes] = useState(false);
   const [isRelogining, setIsRelogining] = useState(false);
+  const [isCodexRetrying, setIsCodexRetrying] = useState(false);
+  const [isExtractingLink, setIsExtractingLink] = useState(false);
+  const [isCheckingPlan, setIsCheckingPlan] = useState(false);
+  const [isSubmittingCodexCallback, setIsSubmittingCodexCallback] = useState(false);
+  const [isCapturingCodexCallback, setIsCapturingCodexCallback] = useState(false);
   const [progress, setProgress] = useState<{
     visible: boolean;
     current: number;
@@ -261,6 +302,18 @@ function AccountsPageContent() {
     }
   };
 
+  const loadCPAPools = async () => {
+    try {
+      const data = await fetchCPAPools();
+      const pools = data.pools || [];
+      setCpaPools(pools);
+      setSelectedCpaPoolId((prev) => prev || pools[0]?.id || "");
+    } catch {
+      setCpaPools([]);
+      setSelectedCpaPoolId("");
+    }
+  };
+
   useEffect(() => {
     if (didLoadRef.current) {
       return;
@@ -268,6 +321,7 @@ function AccountsPageContent() {
     didLoadRef.current = true;
     void loadAccounts();
     void loadModels();
+    void loadCPAPools();
 
     // 清理进度条定时器
     return () => {
@@ -281,6 +335,7 @@ function AccountsPageContent() {
       const searchMatched =
         normalizedQuery.length === 0
         || (account.email ?? "").toLowerCase().includes(normalizedQuery)
+        || String(account.note || "").toLowerCase().includes(normalizedQuery)
         || String(account.agent_identity?.agent_runtime_id || "").toLowerCase().includes(normalizedQuery);
       const typeMatched = typeFilter === "all" || displayAccountType(account) === typeFilter;
       const statusMatched = statusFilter === "all" || account.status === statusFilter;
@@ -289,9 +344,15 @@ function AccountsPageContent() {
         identityFilter === "all"
         || (identityFilter === "agent_identity" && hasAgentIdentity)
         || (identityFilter === "no_agent_identity" && !hasAgentIdentity);
-      return searchMatched && typeMatched && statusMatched && identityMatched;
+      const extractStatus = String(account.extract_link?.status || "").toLowerCase();
+      const extractLinkMatched =
+        extractLinkFilter === "all"
+        || (extractLinkFilter === "none" && !extractStatus)
+        || (extractLinkFilter === "running" && ["queued", "running"].includes(extractStatus))
+        || extractStatus === extractLinkFilter;
+      return searchMatched && typeMatched && statusMatched && identityMatched && extractLinkMatched;
     });
-  }, [accounts, identityFilter, query, statusFilter, typeFilter]);
+  }, [accounts, extractLinkFilter, identityFilter, query, statusFilter, typeFilter]);
 
   const pageCount = Math.max(1, Math.ceil(filteredAccounts.length / Number(pageSize)));
   const safePage = Math.min(page, pageCount);
@@ -703,10 +764,217 @@ function AccountsPageContent() {
     }
   };
 
+  const handleCodexOAuthRetry = async (accessTokens: string[]) => {
+    if (accessTokens.length === 0) {
+      toast.error("请先选择要补跑 Codex OAuth 的账号");
+      return;
+    }
+    if (!selectedCpaPoolId) {
+      toast.error("请先选择 CPA 连接");
+      return;
+    }
+
+    setIsCodexRetrying(true);
+    setProgress({
+      visible: true,
+      current: 0,
+      total: accessTokens.length,
+      message: "正在生成 Codex OAuth 授权地址...",
+      email: "",
+    });
+
+    try {
+      const started = await startAccountCodexOAuthRetry(accessTokens, selectedCpaPoolId);
+      const final = await new Promise<typeof started>((resolve, reject) => {
+        const timer = setInterval(async () => {
+          try {
+            const job = await fetchAccountCodexOAuthRetry(started.job_id);
+            setProgress((prev) => ({
+              ...prev,
+              current: job.completed,
+              message: "正在生成 Codex OAuth 授权地址...",
+            }));
+            if (["done", "failed", "stopped"].includes(job.status)) {
+              clearInterval(timer);
+              resolve(job);
+            }
+          } catch (error) {
+            clearInterval(timer);
+            reject(error);
+          }
+        }, 500);
+      });
+
+      await loadAccounts(true);
+      setProgress({
+        visible: true,
+        current: final.completed,
+        total: final.total,
+        message: "Codex OAuth 补跑完成",
+        email: "",
+      });
+      setTimeout(() => setProgress({ visible: false, current: 0, total: 0, message: "", email: "" }), 800);
+
+      if (final.failed > 0) {
+        const firstError = final.results.find((item) => item.error)?.error;
+        toast.error(`Codex OAuth 授权地址生成 ${final.pending_callback || 0} 个，真正完成 ${final.succeeded} 个，失败 ${final.failed} 个${firstError ? `，首个错误：${firstError}` : ""}`);
+      } else {
+        toast.success(`Codex OAuth 授权地址已生成 ${final.pending_callback || final.succeeded} 个，需继续提交 callback 才算完成`);
+      }
+    } catch (error) {
+      setProgress({ visible: false, current: 0, total: 0, message: "", email: "" });
+      toast.error(error instanceof Error ? error.message : "Codex OAuth 补跑失败");
+    } finally {
+      setIsCodexRetrying(false);
+    }
+  };
+
+  const handleExtractLink = async (accessTokens: string[]) => {
+    if (accessTokens.length === 0) {
+      toast.error("请先选择要提链的账号");
+      return;
+    }
+
+    setIsExtractingLink(true);
+    try {
+      const started = await startExtractLink(accessTokens);
+      setAccounts(started.items);
+      const skippedText = started.skipped > 0 ? `，跳过 ${started.skipped} 个` : "";
+      toast.success(`已提交 ${started.accepted} 个提链任务${skippedText}`);
+      if (started.accepted > 0) {
+        let ticks = 0;
+        const timer = window.setInterval(async () => {
+          ticks += 1;
+          try {
+            const data = await fetchAccounts();
+            setAccounts(data.items);
+            const selected = new Set(accessTokens);
+            const stillRunning = data.items.some((item) => {
+              const status = String(item.extract_link?.status || "").toLowerCase();
+              return selected.has(item.access_token) && ["queued", "running"].includes(status);
+            });
+            if (!stillRunning || ticks >= 60) {
+              window.clearInterval(timer);
+            }
+          } catch {
+            window.clearInterval(timer);
+          }
+        }, 2000);
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "启动提链失败");
+    } finally {
+      setIsExtractingLink(false);
+    }
+  };
+
+  const handlePlanCheck = async (accessTokens: string[]) => {
+    if (accessTokens.length === 0) {
+      toast.error("请先选择要复查套餐的账号");
+      return;
+    }
+    setIsCheckingPlan(true);
+    try {
+      const started = await startAccountPlanCheck(accessTokens);
+      setAccounts(started.items);
+      const skippedText = started.skipped > 0 ? `，跳过 ${started.skipped} 个` : "";
+      toast.success(`已提交 ${started.accepted} 个套餐复查任务${skippedText}`);
+      if (started.accepted > 0) {
+        let ticks = 0;
+        const timer = window.setInterval(async () => {
+          ticks += 1;
+          try {
+            const data = await fetchAccounts();
+            setAccounts(data.items);
+            const selected = new Set(accessTokens);
+            const stillRunning = data.items.some((item) => {
+              const status = String(item.chatgpt_plan_check?.status || "").toLowerCase();
+              return selected.has(item.access_token) && ["queued", "running"].includes(status);
+            });
+            if (!stillRunning || ticks >= 60) {
+              window.clearInterval(timer);
+            }
+          } catch {
+            window.clearInterval(timer);
+          }
+        }, 2000);
+      }
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "启动套餐复查失败");
+    } finally {
+      setIsCheckingPlan(false);
+    }
+  };
+
+  const handleSubmitCodexCallback = async () => {
+    if (!codexCallbackAccount) {
+      return;
+    }
+    const callbackUrl = codexCallbackInput.trim();
+    if (!callbackUrl) {
+      toast.error("请粘贴 Codex OAuth callback URL");
+      return;
+    }
+    setIsSubmittingCodexCallback(true);
+    try {
+      const data = await submitAccountCodexOAuthCallback({
+        access_token: codexCallbackAccount.access_token,
+        callback_url: callbackUrl,
+        cpa_pool_id: codexCallbackAccount.codex_oauth?.pool_id || selectedCpaPoolId,
+      });
+      if (Array.isArray(data.items)) {
+        setAccounts(data.items);
+      } else {
+        await loadAccounts(true);
+      }
+      setCodexCallbackAccount(null);
+      setCodexCallbackInput("");
+      const imported = (data.import_result?.added || 0) + (data.import_result?.skipped || 0);
+      toast.success(`Codex callback 已提交${imported ? `，导入 ${imported} 条记录` : ""}`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "提交 Codex callback 失败");
+    } finally {
+      setIsSubmittingCodexCallback(false);
+    }
+  };
+
+  const handleCaptureCodexCallback = async () => {
+    if (!codexCallbackAccount) {
+      return;
+    }
+    if (!codexCallbackAccount.codex_oauth?.auth_url) {
+      toast.error("当前账号没有 Codex OAuth 授权地址，请先补跑生成");
+      return;
+    }
+    setIsCapturingCodexCallback(true);
+    try {
+      const data = await captureAccountCodexOAuthCallback({
+        access_token: codexCallbackAccount.access_token,
+        provider: codexBrowserProvider,
+        cpa_pool_id: codexCallbackAccount.codex_oauth?.pool_id || selectedCpaPoolId,
+      });
+      if (Array.isArray(data.items)) {
+        setAccounts(data.items);
+      } else {
+        await loadAccounts(true);
+      }
+      setCodexCallbackAccount(null);
+      setCodexCallbackInput("");
+      const imported = (data.import_result?.added || 0) + (data.import_result?.skipped || 0);
+      const provider = data.browser?.provider || codexBrowserProvider;
+      toast.success(`Codex callback 已由 ${provider} 捕获并提交${imported ? `，导入 ${imported} 条记录` : ""}`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "自动捕获 Codex callback 失败");
+    } finally {
+      setIsCapturingCodexCallback(false);
+    }
+  };
+
   const openEditDialog = (account: Account) => {
     setEditingAccount(account);
     setEditStatus(account.status);
     setEditProxy(account.proxy ?? "");
+    setEditNote(account.note ?? "");
   };
 
   const handleTestAccountProxy = async () => {
@@ -738,6 +1006,7 @@ function AccountsPageContent() {
       const data = await updateAccount(editingAccount.access_token, {
         status: editStatus,
         proxy: editProxy.trim(),
+        note: editNote.trim(),
       });
       setAccounts(data.items);
       setSelectedIds((prev) => prev.filter((id) => data.items.some((item) => item.access_token === id)));
@@ -748,6 +1017,27 @@ function AccountsPageContent() {
       toast.error(message);
     } finally {
       setIsUpdating(false);
+    }
+  };
+
+  const handleUpdateSelectedNotes = async () => {
+    if (selectedTokens.length === 0) {
+      toast.error("请先选择要备注的账号");
+      return;
+    }
+    setIsUpdatingNotes(true);
+    try {
+      const data = await updateAccountNotes(selectedTokens, bulkNoteText.trim());
+      setAccounts(data.items);
+      setSelectedIds((prev) => prev.filter((id) => data.items.some((item) => item.access_token === id)));
+      setBulkNoteOpen(false);
+      setBulkNoteText("");
+      const skippedText = data.skipped > 0 ? `，跳过 ${data.skipped} 个` : "";
+      toast.success(`已更新 ${data.updated} 个账号备注${skippedText}`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "批量更新备注失败");
+    } finally {
+      setIsUpdatingNotes(false);
     }
   };
 
@@ -886,6 +1176,15 @@ function AccountsPageContent() {
                 </Button>
               </div>
             </div>
+            <div className="space-y-2">
+              <label className="text-sm font-medium text-stone-700">备注</label>
+              <Textarea
+                value={editNote}
+                onChange={(event) => setEditNote(event.target.value)}
+                placeholder="记录来源、用途、异常原因或人工处理状态"
+                className="min-h-24 rounded-xl border-stone-200 bg-white text-sm"
+              />
+            </div>
           </div>
           <DialogFooter className="pt-2">
             <Button
@@ -903,6 +1202,117 @@ function AccountsPageContent() {
             >
               {isUpdating ? <LoaderCircle className="size-4 animate-spin" /> : null}
               保存修改
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={bulkNoteOpen} onOpenChange={(open) => {
+        setBulkNoteOpen(open);
+        if (!open) {
+          setBulkNoteText("");
+        }
+      }}>
+        <DialogContent showCloseButton={false} className="rounded-2xl p-6">
+          <DialogHeader className="gap-2">
+            <DialogTitle>批量备注</DialogTitle>
+            <DialogDescription className="text-sm leading-6">
+              将同一备注写入当前选中的 {selectedTokens.length} 个账号。
+            </DialogDescription>
+          </DialogHeader>
+          <Textarea
+            value={bulkNoteText}
+            onChange={(event) => setBulkNoteText(event.target.value)}
+            placeholder="记录批次、来源、用途或处理状态"
+            className="min-h-28 rounded-xl border-stone-200 bg-white text-sm"
+          />
+          <DialogFooter className="pt-2">
+            <Button
+              variant="secondary"
+              className="h-10 rounded-xl bg-stone-100 px-5 text-stone-700 hover:bg-stone-200"
+              onClick={() => setBulkNoteOpen(false)}
+              disabled={isUpdatingNotes}
+            >
+              取消
+            </Button>
+            <Button
+              className="h-10 rounded-xl bg-stone-950 px-5 text-white hover:bg-stone-800"
+              onClick={() => void handleUpdateSelectedNotes()}
+              disabled={isUpdatingNotes || selectedTokens.length === 0}
+            >
+              {isUpdatingNotes ? <LoaderCircle className="size-4 animate-spin" /> : <Pencil className="size-4" />}
+              保存备注
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={Boolean(codexCallbackAccount)} onOpenChange={(open) => {
+        if (!open) {
+          setCodexCallbackAccount(null);
+          setCodexCallbackInput("");
+        }
+      }}>
+        <DialogContent showCloseButton={false} className="rounded-2xl p-6">
+          <DialogHeader className="gap-2">
+            <DialogTitle>提交 Codex OAuth Callback</DialogTitle>
+            <DialogDescription className="text-sm leading-6">
+              粘贴浏览器跳转到 localhost:1455 的 callback URL，或用已配置的浏览器驱动打开授权地址并自动捕获。
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div className="rounded-xl bg-stone-50 px-3 py-2 text-xs leading-5 text-stone-500">
+              {codexCallbackAccount?.email || maskToken(codexCallbackAccount?.access_token)}
+            </div>
+            <div className="flex flex-col gap-2 rounded-xl border border-stone-200 bg-white p-3 sm:flex-row sm:items-center">
+              <Select value={codexBrowserProvider} onValueChange={(value) => setCodexBrowserProvider(value as typeof codexBrowserProvider)}>
+                <SelectTrigger className="h-10 rounded-xl border-stone-200 bg-white sm:w-40">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {codexOAuthBrowserProviderOptions.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button
+                variant="outline"
+                className="h-10 rounded-xl border-stone-200 bg-white px-4 text-stone-700 hover:bg-stone-50"
+                onClick={() => void handleCaptureCodexCallback()}
+                disabled={isSubmittingCodexCallback || isCapturingCodexCallback || !codexCallbackAccount?.codex_oauth?.auth_url}
+              >
+                {isCapturingCodexCallback ? <LoaderCircle className="size-4 animate-spin" /> : <Link2 className="size-4" />}
+                自动捕获并提交
+              </Button>
+            </div>
+            <Input
+              value={codexCallbackInput}
+              onChange={(event) => setCodexCallbackInput(event.target.value)}
+              placeholder="http://localhost:1455/auth/callback?code=...&state=..."
+              className="h-11 rounded-xl border-stone-200 bg-white"
+            />
+          </div>
+          <DialogFooter className="pt-2">
+            <Button
+              variant="secondary"
+              className="h-10 rounded-xl bg-stone-100 px-5 text-stone-700 hover:bg-stone-200"
+              onClick={() => {
+                setCodexCallbackAccount(null);
+                setCodexCallbackInput("");
+              }}
+              disabled={isSubmittingCodexCallback || isCapturingCodexCallback}
+            >
+              取消
+            </Button>
+            <Button
+              className="h-10 rounded-xl bg-stone-950 px-5 text-white hover:bg-stone-800"
+              onClick={() => void handleSubmitCodexCallback()}
+              disabled={isSubmittingCodexCallback || isCapturingCodexCallback}
+            >
+              {isSubmittingCodexCallback ? <LoaderCircle className="size-4 animate-spin" /> : <Send className="size-4" />}
+              提交
             </Button>
           </DialogFooter>
         </DialogContent>
@@ -1044,6 +1454,24 @@ function AccountsPageContent() {
                 ))}
               </SelectContent>
             </Select>
+            <Select
+              value={extractLinkFilter}
+              onValueChange={(value) => {
+                setExtractLinkFilter(value as typeof extractLinkFilter);
+                setPage(1);
+              }}
+            >
+              <SelectTrigger className="h-10 w-full rounded-xl border-stone-200 bg-white/85 lg:w-[150px]">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {extractLinkFilterOptions.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
         </div>
 
@@ -1090,6 +1518,36 @@ function AccountsPageContent() {
                 </Button>
                 <Button
                   variant="ghost"
+                  className="h-8 rounded-lg px-3 text-stone-500 hover:bg-stone-100"
+                  onClick={() => setBulkNoteOpen(true)}
+                  disabled={selectedTokens.length === 0 || isUpdatingNotes}
+                  title="为所选账号写入同一备注"
+                >
+                  {isUpdatingNotes ? <LoaderCircle className="size-4 animate-spin" /> : <Pencil className="size-4" />}
+                  批量备注
+                </Button>
+                <Button
+                  variant="ghost"
+                  className="h-8 rounded-lg px-3 text-stone-500 hover:bg-stone-100"
+                  onClick={() => void handlePlanCheck(selectedTokens)}
+                  disabled={selectedTokens.length === 0 || isCheckingPlan}
+                  title="查询所选账号的 ChatGPT 套餐和 Plus 试用资格"
+                >
+                  {isCheckingPlan ? <LoaderCircle className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
+                  套餐复查
+                </Button>
+                <Button
+                  variant="ghost"
+                  className="h-8 rounded-lg px-3 text-emerald-600 hover:bg-emerald-50 hover:text-emerald-700"
+                  onClick={() => void handleExtractLink(selectedTokens)}
+                  disabled={selectedTokens.length === 0 || isExtractingLink}
+                  title="为所选账号发起 Plus 试用提链"
+                >
+                  {isExtractingLink ? <LoaderCircle className="size-4 animate-spin" /> : <Link2 className="size-4" />}
+                  Plus 提链
+                </Button>
+                <Button
+                  variant="ghost"
                   className="h-8 rounded-lg px-3 text-amber-600 hover:bg-amber-50 hover:text-amber-700"
                   onClick={() => void handleReLogin(selectedTokens)}
                   disabled={selectedTokens.length === 0 || isRelogining}
@@ -1097,6 +1555,29 @@ function AccountsPageContent() {
                 >
                   {isRelogining ? <LoaderCircle className="size-4 animate-spin" /> : <LogIn className="size-4" />}
                   尝试恢复异常账号
+                </Button>
+                <Select value={selectedCpaPoolId || "none"} onValueChange={(value) => setSelectedCpaPoolId(value === "none" ? "" : value)}>
+                  <SelectTrigger className="h-8 w-[180px] rounded-lg border-stone-200 bg-white text-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">选择 CPA 连接</SelectItem>
+                    {cpaPools.map((pool) => (
+                      <SelectItem key={pool.id} value={pool.id}>
+                        {pool.name || pool.base_url}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <Button
+                  variant="ghost"
+                  className="h-8 rounded-lg px-3 text-blue-600 hover:bg-blue-50 hover:text-blue-700"
+                  onClick={() => void handleCodexOAuthRetry(selectedTokens)}
+                  disabled={selectedTokens.length === 0 || isCodexRetrying || !selectedCpaPoolId}
+                  title="为所选账号生成 Codex OAuth CPA 授权地址"
+                >
+                  {isCodexRetrying ? <LoaderCircle className="size-4 animate-spin" /> : <Link2 className="size-4" />}
+                  Codex 补跑
                 </Button>
                 <Button
                   variant="ghost"
@@ -1207,7 +1688,92 @@ function AccountsPageContent() {
                           </Badge>
                         </td>
                         <td className="px-4 py-3">
-                          <div className="text-xs leading-5 text-stone-500">{account.email ?? "—"}</div>
+                          <div className="space-y-1 text-xs leading-5 text-stone-500">
+                            <div>{account.email ?? "—"}</div>
+                            {account.note ? (
+                              <div className="max-w-[220px] truncate rounded-md bg-stone-100 px-1.5 py-0.5 text-stone-600" title={account.note}>
+                                {account.note}
+                              </div>
+                            ) : null}
+                            {account.chatgpt_plan_check?.status ? (
+                              <div className="flex flex-wrap items-center gap-1">
+                                <Badge
+                                  variant={account.chatgpt_plan_check.status === "failed" ? "danger" : account.chatgpt_plan_check.status === "success" ? "success" : "outline"}
+                                  className="rounded-md px-1.5 py-0 text-[10px] normal-case tracking-normal"
+                                  title={String(account.chatgpt_plan_check.error || account.chatgpt_plan_check.checked_at || account.chatgpt_plan_check.job_id || "")}
+                                >
+                                  套餐 {account.chatgpt_plan_check.status}
+                                </Badge>
+                                {account.chatgpt_plan_check.current_plan_type ? (
+                                  <Badge variant="secondary" className="rounded-md px-1.5 py-0 text-[10px] normal-case tracking-normal">
+                                    {String(account.chatgpt_plan_check.current_plan_type)}
+                                  </Badge>
+                                ) : null}
+                                {account.chatgpt_plan_check.plus_trial_eligible ? (
+                                  <Badge variant="info" className="rounded-md px-1.5 py-0 text-[10px] normal-case tracking-normal">
+                                    Plus trial
+                                  </Badge>
+                                ) : null}
+                              </div>
+                            ) : null}
+                            {account.codex_oauth?.status ? (
+                              <div className="flex items-center gap-1">
+                                <Badge variant={account.codex_oauth.status === "failed" ? "danger" : "outline"} className="rounded-md px-1.5 py-0 text-[10px] normal-case tracking-normal">
+                                  Codex {account.codex_oauth.status}
+                                </Badge>
+                                {account.codex_oauth.auth_url ? (
+                                  <button
+                                    type="button"
+                                    className="rounded p-1 text-stone-400 transition hover:bg-stone-100 hover:text-stone-700"
+                                    onClick={() => {
+                                      void navigator.clipboard.writeText(account.codex_oauth?.auth_url || "");
+                                      toast.success("Codex 授权地址已复制");
+                                    }}
+                                    title="复制 Codex OAuth 授权地址"
+                                  >
+                                    <Copy className="size-3" />
+                                  </button>
+                                ) : null}
+                                {account.codex_oauth.status === "pending_callback" ? (
+                                  <button
+                                    type="button"
+                                    className="rounded p-1 text-stone-400 transition hover:bg-stone-100 hover:text-stone-700"
+                                    onClick={() => {
+                                      setCodexCallbackAccount(account);
+                                      setCodexCallbackInput("");
+                                    }}
+                                    title="提交 Codex OAuth callback"
+                                  >
+                                    <Send className="size-3" />
+                                  </button>
+                                ) : null}
+                              </div>
+                            ) : null}
+                            {account.extract_link?.status ? (
+                              <div className="flex items-center gap-1">
+                                <Badge
+                                  variant={account.extract_link.status === "failed" ? "danger" : account.extract_link.status === "success" ? "success" : "outline"}
+                                  className="rounded-md px-1.5 py-0 text-[10px] normal-case tracking-normal"
+                                  title={account.extract_link.error || account.extract_link.message || account.extract_link.job_id}
+                                >
+                                  提链 {account.extract_link.status}
+                                </Badge>
+                                {account.extract_link.result ? (
+                                  <button
+                                    type="button"
+                                    className="rounded p-1 text-stone-400 transition hover:bg-stone-100 hover:text-stone-700"
+                                    onClick={() => {
+                                      void navigator.clipboard.writeText(JSON.stringify(account.extract_link?.result || {}, null, 2));
+                                      toast.success("提链结果已复制");
+                                    }}
+                                    title="复制提链结果"
+                                  >
+                                    <Copy className="size-3" />
+                                  </button>
+                                ) : null}
+                              </div>
+                            ) : null}
+                          </div>
                         </td>
                         <td className="px-4 py-3 text-xs leading-5 text-stone-500">
                           {(() => {

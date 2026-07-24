@@ -14,13 +14,15 @@ import { RegisterCard } from "./components/register-card";
 function RegisterDataController() {
   const didLoadRef = useRef(false);
   const loadRegister = useSettingsStore((state) => state.loadRegister);
+  const loadPools = useSettingsStore((state) => state.loadPools);
   const setRegisterConfig = useSettingsStore((state) => state.setRegisterConfig);
 
   useEffect(() => {
     if (didLoadRef.current) return;
     didLoadRef.current = true;
     void loadRegister();
-  }, [loadRegister]);
+    void loadPools(true);
+  }, [loadPools, loadRegister]);
 
   useEffect(() => {
     let source: EventSource | null = null;

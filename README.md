@@ -71,6 +71,18 @@ bun install
 bun run dev
 ```
 
+协议诊断工具：
+
+```bash
+uv run python scripts/dev/analyze_har_protocol.py path/to/trace.har -o docs/protocol_har_summary.json
+uv run python scripts/dev/check_chatgpt_session_api.py --token "<ChatGPT Web accessToken>" --endpoint accounts-check
+uv run python scripts/dev/run_codex_oauth_probe.py --mode local
+```
+
+`analyze_har_protocol.py` 用于离线分析 ChatGPT/OpenAI HAR 或 Reqorder JSON，请求 headers、query 和 body 中的 token/cookie/code 等敏感值会在输出前脱敏。`check_chatgpt_session_api.py` 用于验证 ChatGPT Web `accessToken` 是否能访问 `accounts-check` / `subscriptions`。`run_codex_oauth_probe.py` 用于生成 Codex OAuth 授权 URL 或提交 callback，支持本地 PKCE 与已配置 CPA pool。
+
+注册机邮箱 provider 支持 Outlook、Cloudflare temp、generic_api、gptmail、mailnest、cloudmail 等，也支持 `qqmail_imap`：适用于 Cloudflare Email Routing 把随机域名邮箱转发到 QQ 邮箱后，通过 QQ 邮箱 IMAP 授权码收取 OpenAI OTP。QQ IMAP 授权码只写保存，读取配置和 SSE 日志不会回显明文。
+
 后续更新新版本：
 
 ```bash

@@ -267,6 +267,12 @@ class AccountService:
         normalized["image_quota_unknown"] = bool(normalized.get("image_quota_unknown"))
         normalized["email"] = normalized.get("email") or None
         normalized["user_id"] = normalized.get("user_id") or None
+        normalized["note"] = str(normalized.get("note") or "").strip()
+        normalized["note_updated_at"] = normalized.get("note_updated_at") or None
+        normalized["twofa_enabled"] = bool(normalized.get("twofa_enabled") or normalized.get("totp_secret"))
+        normalized["totp_secret"] = str(normalized.get("totp_secret") or "").strip()
+        recovery_codes = normalized.get("recovery_codes")
+        normalized["recovery_codes"] = [str(item).strip() for item in recovery_codes if str(item).strip()] if isinstance(recovery_codes, list) else []
         normalized["proxy"] = str(normalized.get("proxy") or "").strip()
         source_type = normalized.get("source_type")
         if not source_type and str(normalized.get("export_type") or "").strip().lower() in {"codex", "codex_agent_identity"}:
@@ -1344,6 +1350,9 @@ class AccountService:
             current = self._accounts.get(access_token)
             if current is None:
                 return None
+            if "note" in updates:
+                updates = dict(updates)
+                updates["note_updated_at"] = self._now()
             account = self._normalize_account({**current, **updates, "access_token": access_token})
             if account is None:
                 return None
@@ -1359,6 +1368,39 @@ class AccountService:
                                 {"token": anonymize_token(access_token), "status": account.get("status")})
             return dict(account)
         return None
+
+    def update_account_notes(self, access_tokens: list[str], note: str) -> dict[str, Any]:
+        target_tokens = list(dict.fromkeys(str(token or "").strip() for token in access_tokens if str(token or "").strip()))
+        if not target_tokens:
+            return {"updated": 0, "skipped": 0, "items": self.list_accounts(), "skipped_items": []}
+        normalized_note = str(note or "").strip()
+        updated = 0
+        skipped_items: list[dict[str, str]] = []
+        with self._lock:
+            for token in target_tokens:
+                access_token = self._resolve_access_token_locked(token)
+                current = self._accounts.get(access_token)
+                if current is None:
+                    skipped_items.append({"access_token": token, "reason": "account not found"})
+                    continue
+                account = self._normalize_account(
+                    {
+                        **current,
+                        "access_token": access_token,
+                        "note": normalized_note,
+                        "note_updated_at": self._now(),
+                    }
+                )
+                if account is None:
+                    skipped_items.append({"access_token": token, "reason": "account is invalid"})
+                    continue
+                self._accounts[access_token] = account
+                updated += 1
+            if updated:
+                self._save_accounts()
+                self._log_account("批量更新账号备注", {"updated": updated, "skipped": len(skipped_items)})
+            items = [dict(item) for item in self._accounts.values()]
+        return {"updated": updated, "skipped": len(skipped_items), "items": items, "skipped_items": skipped_items}
 
     def _record_refresh_success(self, access_token: str) -> None:
         with self._lock:
@@ -1824,6 +1866,17 @@ class AccountService:
                     item["id_token"] = id_token
                 if password := str(account.get("password") or "").strip():
                     item["password"] = password
+                if note := str(account.get("note") or "").strip():
+                    item["note"] = note
+                    item["note_updated_at"] = account.get("note_updated_at")
+                if account.get("twofa_enabled") or account.get("totp_secret") or account.get("recovery_codes"):
+                    item["twofa_enabled"] = bool(account.get("twofa_enabled") or account.get("totp_secret"))
+                    if totp_secret := str(account.get("totp_secret") or "").strip():
+                        item["totp_secret"] = totp_secret
+                    if isinstance(account.get("recovery_codes"), list):
+                        item["recovery_codes"] = list(account["recovery_codes"])
+                if isinstance(account.get("extract_link"), dict):
+                    item["extract_link"] = dict(account["extract_link"])
                 items.append(item)
                 continue
             if not access_token or not refresh_token or not id_token:
@@ -1859,6 +1912,17 @@ class AccountService:
             password = str(account.get("password") or "").strip()
             if password:
                 item["password"] = password
+            if note := str(account.get("note") or "").strip():
+                item["note"] = note
+                item["note_updated_at"] = account.get("note_updated_at")
+            if account.get("twofa_enabled") or account.get("totp_secret") or account.get("recovery_codes"):
+                item["twofa_enabled"] = bool(account.get("twofa_enabled") or account.get("totp_secret"))
+                if totp_secret := str(account.get("totp_secret") or "").strip():
+                    item["totp_secret"] = totp_secret
+                if isinstance(account.get("recovery_codes"), list):
+                    item["recovery_codes"] = list(account["recovery_codes"])
+            if isinstance(account.get("extract_link"), dict):
+                item["extract_link"] = dict(account["extract_link"])
             items.append(item)
         return items
 

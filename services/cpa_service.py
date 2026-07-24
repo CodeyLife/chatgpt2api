@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import json
 import threading
+import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
 from threading import Lock
+from urllib.parse import parse_qs, urlparse
 
 from curl_cffi.requests import Session
 
@@ -63,6 +65,154 @@ def _management_headers(secret_key: str) -> dict[str, str]:
     return {
         "Authorization": f"Bearer {secret_key}",
         "Accept": "application/json",
+    }
+
+
+def _first_non_empty(*values: object) -> str:
+    for value in values:
+        text = str(value or "").strip()
+        if text:
+            return text
+    return ""
+
+
+def _extract_state_from_url(auth_url: str) -> str:
+    try:
+        return parse_qs(urlparse(auth_url).query).get("state", [""])[0]
+    except Exception:
+        return ""
+
+
+def _request_management_json(pool: dict, method: str, path: str, body: dict | None = None) -> dict:
+    base_url = str(pool.get("base_url") or "").strip().rstrip("/")
+    secret_key = str(pool.get("secret_key") or "").strip()
+    if not base_url or not secret_key:
+        raise ValueError("CPA pool base_url and secret_key are required")
+    headers = {
+        **_management_headers(secret_key),
+        "Content-Type": "application/json",
+        "X-Management-Key": secret_key,
+    }
+    session = Session(**proxy_settings.build_session_kwargs(verify=True))
+    try:
+        response = session.request(
+            method.upper(),
+            f"{base_url}{path}",
+            headers=headers,
+            data=None if body is None else json.dumps(body),
+            timeout=30,
+        )
+        try:
+            payload = response.json()
+        except Exception:
+            payload = {}
+        if response.status_code < 200 or response.status_code >= 300:
+            message = ""
+            if isinstance(payload, dict):
+                message = str(payload.get("error") or payload.get("message") or payload.get("detail") or "")
+            raise RuntimeError(f"CPA management {method.upper()} {path} failed: HTTP {response.status_code} {message or response.text[:300]}")
+        return payload if isinstance(payload, dict) else {}
+    finally:
+        session.close()
+
+
+def request_codex_auth_url(pool: dict) -> dict:
+    payload = _request_management_json(pool, "GET", "/v0/management/codex-auth-url")
+    data = payload.get("data") if isinstance(payload.get("data"), dict) else {}
+    auth_url = _first_non_empty(
+        payload.get("url"),
+        payload.get("auth_url"),
+        payload.get("authUrl"),
+        data.get("url"),
+        data.get("auth_url"),
+        data.get("authUrl"),
+    )
+    state = _first_non_empty(
+        payload.get("state"),
+        payload.get("auth_state"),
+        payload.get("authState"),
+        data.get("state"),
+        data.get("auth_state"),
+        data.get("authState"),
+        _extract_state_from_url(auth_url),
+    )
+    if not auth_url.startswith("http"):
+        raise RuntimeError("CPA did not return a valid Codex auth URL")
+    return {
+        "auth_url": auth_url,
+        "state": state,
+        "pool_id": str(pool.get("id") or ""),
+        "raw": payload,
+    }
+
+
+def _extract_auth_json(payload: dict) -> dict | None:
+    candidates = [
+        payload.get("auth_json"),
+        payload.get("authJson"),
+        payload.get("auth"),
+        payload.get("auth_file"),
+        payload.get("authFile"),
+        payload.get("data") if isinstance(payload.get("data"), dict) else None,
+    ]
+    for candidate in candidates:
+        if isinstance(candidate, str):
+            try:
+                candidate = json.loads(candidate)
+            except Exception:
+                continue
+        if not isinstance(candidate, dict):
+            continue
+        if candidate.get("access_token") or candidate.get("accessToken") or candidate.get("agent_identity"):
+            return candidate
+    return None
+
+
+def _auth_json_account_payload(auth_json: dict) -> dict:
+    access_token = str(auth_json.get("access_token") or auth_json.get("accessToken") or "").strip()
+    payload = dict(auth_json)
+    payload["access_token"] = access_token
+    payload.pop("accessToken", None)
+    payload["source_type"] = str(payload.get("source_type") or "codex")
+    payload["export_type"] = str(payload.get("export_type") or payload.get("type") or "codex")
+    if payload.get("plan_type") and not payload.get("type"):
+        payload["type"] = str(payload.get("plan_type") or "")
+    return payload
+
+
+def submit_codex_oauth_callback(pool: dict, callback_url: str, *, import_account: bool = True) -> dict:
+    callback_url = str(callback_url or "").strip()
+    if not callback_url:
+        raise ValueError("callback_url is required")
+    body = {"provider": "codex", "redirect_url": callback_url}
+    last_error: Exception | None = None
+    payload: dict = {}
+    for attempt in range(1, 6):
+        try:
+            payload = _request_management_json(pool, "POST", "/v0/management/oauth-callback", body)
+            last_error = None
+            break
+        except Exception as exc:
+            last_error = exc
+            text = str(exc).lower()
+            retryable = any(part in text for part in ("timeout", "http 409", "http 429", "http 500", "http 502", "http 503", "http 504"))
+            if attempt >= 5 or not retryable:
+                raise
+            time.sleep(float(attempt))
+    if last_error is not None:
+        raise last_error
+    auth_json = _extract_auth_json(payload)
+    import_result = None
+    if import_account and isinstance(auth_json, dict):
+        account_payload = _auth_json_account_payload(auth_json)
+        if account_payload.get("access_token"):
+            import_result = account_service.add_account_items([account_payload])
+    return {
+        "ok": True,
+        "callback_url": callback_url,
+        "payload": payload,
+        "auth_json": auth_json,
+        "import_result": import_result,
     }
 
 

@@ -1,0 +1,10 @@
+npm warn Unknown project config "enable-pre-post-scripts". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+
+> next-starter@0.1.0 dev
+> next dev --webpack -H 0.0.0.0 -p 3000
+
+▲ Next.js 16.2.3 (webpack)
+- Local:         http://localhost:3000
+- Network:       http://0.0.0.0:3000
+✓ Ready in 621ms
+

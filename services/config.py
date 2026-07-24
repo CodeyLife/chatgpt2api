@@ -84,6 +84,17 @@ DEFAULT_THIRD_PARTY_APPS = {
     },
 }
 
+DEFAULT_EXTRACT_LINK = {
+    "enabled": False,
+    "api_base": "",
+    "cdk": "",
+    "link_type": "pix",
+    "workers": 3,
+    "queue_limit": 500,
+    "request_timeout": 30,
+    "event_timeout": 180,
+}
+
 
 def _normalize_bool(value: object, default: bool = False) -> bool:
     if isinstance(value, str):
@@ -291,6 +302,24 @@ def _normalize_third_party_apps_settings(value: object) -> dict[str, object]:
             "enabled": _normalize_bool(canvas_source.get("enabled"), False),
             "url": str(canvas_source.get("url") or DEFAULT_THIRD_PARTY_APPS["infinite_canvas"]["url"]).strip(),
         },
+    }
+
+
+def _normalize_extract_link_settings(value: object) -> dict[str, object]:
+    source = value if isinstance(value, dict) else {}
+    link_type = str(source.get("link_type") or DEFAULT_EXTRACT_LINK["link_type"]).strip().lower()
+    if link_type not in {"pix", "upi"}:
+        link_type = str(DEFAULT_EXTRACT_LINK["link_type"])
+    workers = _normalize_positive_int(source.get("workers"), int(DEFAULT_EXTRACT_LINK["workers"]), 1)
+    return {
+        "enabled": _normalize_bool(source.get("enabled"), bool(DEFAULT_EXTRACT_LINK["enabled"])),
+        "api_base": str(source.get("api_base") or "").strip().rstrip("/"),
+        "cdk": str(source.get("cdk") or "").strip(),
+        "link_type": link_type,
+        "workers": min(16, workers),
+        "queue_limit": min(5000, max(workers, _normalize_positive_int(source.get("queue_limit"), int(DEFAULT_EXTRACT_LINK["queue_limit"]), workers))),
+        "request_timeout": min(300, _normalize_positive_int(source.get("request_timeout"), int(DEFAULT_EXTRACT_LINK["request_timeout"]), 5)),
+        "event_timeout": min(900, _normalize_positive_int(source.get("event_timeout"), int(DEFAULT_EXTRACT_LINK["event_timeout"]), 30)),
     }
 
 
@@ -616,6 +645,7 @@ class ConfigStore:
         data["chat_completion_cache"] = self.get_chat_completion_cache_settings()
         data["proxy_runtime"] = self.get_public_proxy_runtime_settings()
         data["third_party_apps"] = self.get_third_party_apps_settings()
+        data["extract_link"] = self.get_public_extract_link_settings()
         data.pop("auth-key", None)
         return data
 
@@ -640,6 +670,16 @@ class ConfigStore:
     def get_third_party_apps_settings(self) -> dict[str, object]:
         return _normalize_third_party_apps_settings(self.data.get("third_party_apps"))
 
+    def get_extract_link_settings(self) -> dict[str, object]:
+        return _normalize_extract_link_settings(self.data.get("extract_link"))
+
+    def get_public_extract_link_settings(self) -> dict[str, object]:
+        settings = dict(self.get_extract_link_settings())
+        cdk = str(settings.get("cdk") or "").strip()
+        settings["cdk"] = ""
+        settings["has_cdk"] = bool(cdk)
+        return settings
+
     def update(self, data: dict[str, object]) -> dict[str, object]:
         next_data = dict(self.data)
         next_data.update(dict(data or {}))
@@ -654,6 +694,17 @@ class ConfigStore:
             )
         if "third_party_apps" in next_data:
             next_data["third_party_apps"] = _normalize_third_party_apps_settings(next_data.get("third_party_apps"))
+        if "extract_link" in next_data:
+            incoming_extract_link = next_data.get("extract_link")
+            if isinstance(incoming_extract_link, dict):
+                current_extract_link = self.get_extract_link_settings()
+                if (
+                    _normalize_bool(incoming_extract_link.get("has_cdk"), False)
+                    and not str(incoming_extract_link.get("cdk") or "").strip()
+                ):
+                    incoming_extract_link = dict(incoming_extract_link)
+                    incoming_extract_link["cdk"] = current_extract_link.get("cdk")
+            next_data["extract_link"] = _normalize_extract_link_settings(incoming_extract_link)
         if "image_convert_result_to_jpg" in next_data:
             next_data["image_convert_result_to_jpg"] = _normalize_bool(
                 next_data.get("image_convert_result_to_jpg"),

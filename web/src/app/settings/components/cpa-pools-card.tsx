@@ -1,14 +1,30 @@
 "use client";
 
-import { Import, LoaderCircle, Pencil, Plus, ServerCog, Trash2 } from "lucide-react";
+import { useState } from "react";
+import { toast } from "sonner";
+import { Copy, Import, KeyRound, LoaderCircle, Pencil, Plus, Send, ServerCog, Trash2 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import {
+  createCodexOAuthAuthUrl,
+  fetchCPACodexAuthUrl,
+  submitCodexOAuthCallback,
+  submitCPACodexOAuthCallback,
+  type CodexOAuthAuthUrlResponse,
+} from "@/lib/api";
 
 import { useSettingsStore } from "../store";
 
 export function CPAPoolsCard() {
+  const [codexBusyId, setCodexBusyId] = useState<string | null>(null);
+  const [codexAuthUrls, setCodexAuthUrls] = useState<Record<string, string>>({});
+  const [callbackUrls, setCallbackUrls] = useState<Record<string, string>>({});
+  const [localCodexBusy, setLocalCodexBusy] = useState(false);
+  const [localCodexAuth, setLocalCodexAuth] = useState<CodexOAuthAuthUrlResponse | null>(null);
+  const [localCallbackUrl, setLocalCallbackUrl] = useState("");
   const pools = useSettingsStore((state) => state.pools);
   const isLoadingPools = useSettingsStore((state) => state.isLoadingPools);
   const deletingId = useSettingsStore((state) => state.deletingId);
@@ -17,6 +33,79 @@ export function CPAPoolsCard() {
   const openEditDialog = useSettingsStore((state) => state.openEditDialog);
   const deletePool = useSettingsStore((state) => state.deletePool);
   const browseFiles = useSettingsStore((state) => state.browseFiles);
+
+  const generateLocalCodexAuthUrl = async () => {
+    try {
+      setLocalCodexBusy(true);
+      const data = await createCodexOAuthAuthUrl();
+      setLocalCodexAuth(data);
+      await navigator.clipboard?.writeText(data.auth_url);
+      toast.success("本地 Codex 授权地址已生成并复制");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "生成本地 Codex 授权地址失败");
+    } finally {
+      setLocalCodexBusy(false);
+    }
+  };
+
+  const submitLocalCallback = async () => {
+    const callbackUrl = localCallbackUrl.trim();
+    if (!localCodexAuth?.code_verifier) {
+      toast.error("请先生成本地 Codex 授权地址");
+      return;
+    }
+    if (!callbackUrl) {
+      toast.error("请粘贴本地 Codex OAuth callback URL");
+      return;
+    }
+    try {
+      setLocalCodexBusy(true);
+      const data = await submitCodexOAuthCallback({
+        callback_url: callbackUrl,
+        code_verifier: localCodexAuth.code_verifier,
+        state: localCodexAuth.state,
+        import_account: true,
+      });
+      const imported = data.import_result?.added || data.import_result?.skipped || 0;
+      toast.success(`本地 Codex OAuth 已完成，账号导入结果 ${imported}`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "提交本地 Codex callback 失败");
+    } finally {
+      setLocalCodexBusy(false);
+    }
+  };
+
+  const generateCodexAuthUrl = async (poolId: string) => {
+    try {
+      setCodexBusyId(poolId);
+      const data = await fetchCPACodexAuthUrl(poolId);
+      setCodexAuthUrls((state) => ({ ...state, [poolId]: data.auth_url }));
+      await navigator.clipboard?.writeText(data.auth_url);
+      toast.success("Codex 授权地址已生成并复制");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "生成 Codex 授权地址失败");
+    } finally {
+      setCodexBusyId(null);
+    }
+  };
+
+  const submitCallback = async (poolId: string) => {
+    const callbackUrl = String(callbackUrls[poolId] || "").trim();
+    if (!callbackUrl) {
+      toast.error("请先粘贴 Codex OAuth callback URL");
+      return;
+    }
+    try {
+      setCodexBusyId(poolId);
+      const data = await submitCPACodexOAuthCallback(poolId, callbackUrl, true);
+      const imported = data.import_result?.added || data.import_result?.skipped || 0;
+      toast.success(data.auth_json ? `CPA callback 已提交，账号导入结果 ${imported}` : "CPA callback 已提交");
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "提交 Codex callback 失败");
+    } finally {
+      setCodexBusyId(null);
+    }
+  };
 
   return (
     <Card className="rounded-2xl border-white/80 bg-white/90 shadow-sm">
@@ -38,6 +127,60 @@ export function CPAPoolsCard() {
               添加连接
             </Button>
           </div>
+        </div>
+
+        <div className="space-y-3 rounded-xl border border-stone-200 bg-white px-4 py-4">
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <div className="text-sm font-medium text-stone-800">本地 Codex OAuth</div>
+              <div className="text-xs text-stone-400">本地生成 PKCE 授权地址，粘贴 callback 后换 token 并导入本地号池。</div>
+            </div>
+            <Button
+              variant="outline"
+              className="h-8 rounded-lg border-stone-200 bg-white px-3 text-xs text-stone-600"
+              onClick={() => void generateLocalCodexAuthUrl()}
+              disabled={localCodexBusy}
+            >
+              {localCodexBusy ? <LoaderCircle className="size-3.5 animate-spin" /> : <KeyRound className="size-3.5" />}
+              生成
+            </Button>
+          </div>
+
+          {localCodexAuth ? (
+            <div className="space-y-2 rounded-xl bg-stone-50 px-3 py-3">
+              <div className="flex items-center justify-between gap-2">
+                <div className="truncate text-xs text-stone-500">{localCodexAuth.auth_url}</div>
+                <button
+                  type="button"
+                  className="rounded-lg p-2 text-stone-400 transition hover:bg-stone-100 hover:text-stone-700"
+                  onClick={() => {
+                    void navigator.clipboard?.writeText(localCodexAuth.auth_url);
+                    toast.success("授权地址已复制");
+                  }}
+                  title="复制授权地址"
+                >
+                  <Copy className="size-4" />
+                </button>
+              </div>
+              <div className="flex gap-2">
+                <Input
+                  value={localCallbackUrl}
+                  onChange={(event) => setLocalCallbackUrl(event.target.value)}
+                  className="h-9 rounded-lg border-stone-200 bg-white text-xs"
+                  placeholder="http://localhost:1455/auth/callback?code=...&state=..."
+                />
+                <Button
+                  variant="outline"
+                  className="h-9 rounded-lg border-stone-200 bg-white px-3 text-xs text-stone-600"
+                  onClick={() => void submitLocalCallback()}
+                  disabled={localCodexBusy}
+                >
+                  <Send className="size-3.5" />
+                  导入
+                </Button>
+              </div>
+            </div>
+          ) : null}
         </div>
 
         {isLoadingPools ? (
@@ -108,7 +251,56 @@ export function CPAPoolsCard() {
                       )}
                       同步
                     </Button>
+                    <Button
+                      variant="outline"
+                      className="h-8 rounded-lg border-stone-200 bg-white px-3 text-xs text-stone-600"
+                      onClick={() => void generateCodexAuthUrl(pool.id)}
+                      disabled={isBusy || codexBusyId === pool.id}
+                    >
+                      {codexBusyId === pool.id ? (
+                        <LoaderCircle className="size-3.5 animate-spin" />
+                      ) : (
+                        <KeyRound className="size-3.5" />
+                      )}
+                      Codex OAuth
+                    </Button>
                   </div>
+
+                  {codexAuthUrls[pool.id] ? (
+                    <div className="space-y-2 rounded-xl bg-stone-50 px-3 py-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="truncate text-xs text-stone-500">{codexAuthUrls[pool.id]}</div>
+                        <button
+                          type="button"
+                          className="rounded-lg p-2 text-stone-400 transition hover:bg-stone-100 hover:text-stone-700"
+                          onClick={() => {
+                            void navigator.clipboard?.writeText(codexAuthUrls[pool.id]);
+                            toast.success("授权地址已复制");
+                          }}
+                          title="复制授权地址"
+                        >
+                          <Copy className="size-4" />
+                        </button>
+                      </div>
+                      <div className="flex gap-2">
+                        <Input
+                          value={callbackUrls[pool.id] || ""}
+                          onChange={(event) => setCallbackUrls((state) => ({ ...state, [pool.id]: event.target.value }))}
+                          className="h-9 rounded-lg border-stone-200 bg-white text-xs"
+                          placeholder="http://localhost:1455/auth/callback?code=...&state=..."
+                        />
+                        <Button
+                          variant="outline"
+                          className="h-9 rounded-lg border-stone-200 bg-white px-3 text-xs text-stone-600"
+                          onClick={() => void submitCallback(pool.id)}
+                          disabled={codexBusyId === pool.id}
+                        >
+                          <Send className="size-3.5" />
+                          提交
+                        </Button>
+                      </div>
+                    </div>
+                  ) : null}
 
                   {importJob ? (
                     <div className="space-y-2 rounded-xl bg-stone-50 px-3 py-3">

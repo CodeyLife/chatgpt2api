@@ -73,6 +73,23 @@ class FakeProxySettings:
 
 
 class RegisterProxyRuntimeTests(unittest.TestCase):
+    def test_classify_create_account_unsupported_email(self):
+        response = FakeResponse(
+            status_code=400,
+            text='{"error":{"message":"The email you provided is not supported.","code":"unsupported_email"}}',
+            headers={"content-type": "application/json"},
+            url="https://auth.openai.com/api/accounts/create_account",
+        )
+
+        def response_json():
+            return {"error": {"message": "The email you provided is not supported.", "code": "unsupported_email"}}
+
+        response.json = response_json
+
+        diagnosis = openai_register._classify_failure("create_account", response)
+
+        self.assertIn("邮箱地址不被上游支持", diagnosis)
+
     def test_create_session_uses_proxy_settings_without_breaking_existing_proxy_argument(self):
         fake_proxy = FakeProxySettings()
         created = []
@@ -313,6 +330,158 @@ class RegisterProxyRuntimeTests(unittest.TestCase):
         self.assertTrue(snapshot["codex_agent_identity_enabled"])
         self.assertFalse(snapshot["codex_agent_identity_verify_task"])
 
+    def test_register_service_normalizes_driver_cpa_and_nested_runtime_settings(self):
+        with TemporaryDirectory() as tmp:
+            service = RegisterService(Path(tmp) / "register.json")
+            snapshot = service.update(
+                {
+                    "registration_driver": "chatgpt_web",
+                    "codex_oauth_enabled": "yes",
+                    "codex_oauth_via_cpa": "0",
+                    "codex_oauth_cpa_pool_id": " pool-1 ",
+                    "chatgpt_web": {"bootstrap_enabled": "0", "bootstrap_strict": "yes"},
+                    "flow_trigger": {"enabled": True, "bearer": "bearer-token", "cookie": "cookie-token"},
+                    "browser_use": {"api_key": "browser-token"},
+                    "skyvern": {"api_key": "skyvern-token"},
+                    "roxy": {"api_token": "roxy-token"},
+                    "cloak": {"license_key": "cloak-token"},
+                    "sms": {
+                        "api_key": "sms-token",
+                        "provider": "h",
+                        "l_admin_auth_code": "l-code",
+                        "h_admin_auth_code": "h-code",
+                    },
+                }
+            )
+
+        self.assertEqual(snapshot["registration_driver"], "chatgpt_web")
+        self.assertTrue(snapshot["codex_oauth_enabled"])
+        self.assertFalse(snapshot["codex_oauth_via_cpa"])
+        self.assertEqual(snapshot["codex_oauth_cpa_pool_id"], "pool-1")
+        self.assertFalse(snapshot["chatgpt_web"]["bootstrap_enabled"])
+        self.assertTrue(snapshot["chatgpt_web"]["bootstrap_strict"])
+        self.assertEqual(snapshot["flow_trigger"]["bearer"], "")
+        self.assertEqual(snapshot["flow_trigger"]["cookie"], "")
+        self.assertTrue(snapshot["flow_trigger"]["has_bearer"])
+        self.assertTrue(snapshot["flow_trigger"]["has_cookie"])
+        self.assertEqual(snapshot["browser_use"]["api_key"], "")
+        self.assertTrue(snapshot["browser_use"]["has_api_key"])
+        self.assertIn("cdp_base", snapshot["browser_use"])
+        self.assertEqual(snapshot["skyvern"]["api_key"], "")
+        self.assertTrue(snapshot["skyvern"]["has_api_key"])
+        self.assertIn("api_base", snapshot["skyvern"])
+        self.assertEqual(snapshot["roxy"]["api_token"], "")
+        self.assertTrue(snapshot["roxy"]["has_api_token"])
+        self.assertEqual(snapshot["cloak"]["license_key"], "")
+        self.assertTrue(snapshot["cloak"]["has_license_key"])
+        self.assertEqual(snapshot["sms"]["api_key"], "")
+        self.assertEqual(snapshot["sms"]["l_admin_auth_code"], "")
+        self.assertEqual(snapshot["sms"]["h_admin_auth_code"], "")
+        self.assertTrue(snapshot["sms"]["has_api_key"])
+        self.assertTrue(snapshot["sms"]["has_l_admin_auth_code"])
+        self.assertTrue(snapshot["sms"]["has_h_admin_auth_code"])
+        self.assertEqual(snapshot["sms"]["provider"], "h")
+        self.assertEqual(service._config["flow_trigger"]["bearer"], "bearer-token")
+        self.assertEqual(service._config["flow_trigger"]["cookie"], "cookie-token")
+        self.assertEqual(service._config["browser_use"]["api_key"], "browser-token")
+        self.assertEqual(service._config["skyvern"]["api_key"], "skyvern-token")
+        self.assertEqual(service._config["roxy"]["api_token"], "roxy-token")
+        self.assertEqual(service._config["cloak"]["license_key"], "cloak-token")
+        self.assertEqual(service._config["sms"]["api_key"], "sms-token")
+        self.assertEqual(service._config["sms"]["l_admin_auth_code"], "l-code")
+        self.assertEqual(service._config["sms"]["h_admin_auth_code"], "h-code")
+
+    def test_register_service_preserves_redacted_runtime_secrets_on_update(self):
+        with TemporaryDirectory() as tmp:
+            service = RegisterService(Path(tmp) / "register.json")
+            service.update(
+                {
+                    "flow_trigger": {"bearer": "bearer-token", "cookie": "cookie-token"},
+                    "browser_use": {"api_key": "browser-token"},
+                    "skyvern": {"api_key": "skyvern-token"},
+                    "roxy": {"api_token": "roxy-token"},
+                    "cloak": {"license_key": "cloak-token"},
+                    "sms": {
+                        "api_key": "sms-token",
+                        "l_admin_auth_code": "l-code",
+                        "h_admin_auth_code": "h-code",
+                    },
+                }
+            )
+            snapshot = service.update(
+                {
+                    "flow_trigger": {"bearer": "", "has_bearer": True, "cookie": "", "has_cookie": True},
+                    "browser_use": {"api_key": "", "has_api_key": True},
+                    "skyvern": {"api_key": "", "has_api_key": True},
+                    "roxy": {"api_token": "", "has_api_token": True},
+                    "cloak": {"license_key": "", "has_license_key": True},
+                    "sms": {
+                        "api_key": "",
+                        "has_api_key": True,
+                        "l_admin_auth_code": "",
+                        "has_l_admin_auth_code": True,
+                        "h_admin_auth_code": "",
+                        "has_h_admin_auth_code": True,
+                    },
+                }
+            )
+
+        self.assertEqual(snapshot["browser_use"]["api_key"], "")
+        self.assertTrue(snapshot["browser_use"]["has_api_key"])
+        self.assertEqual(service._config["flow_trigger"]["bearer"], "bearer-token")
+        self.assertEqual(service._config["flow_trigger"]["cookie"], "cookie-token")
+        self.assertEqual(service._config["browser_use"]["api_key"], "browser-token")
+        self.assertEqual(service._config["skyvern"]["api_key"], "skyvern-token")
+        self.assertEqual(service._config["roxy"]["api_token"], "roxy-token")
+        self.assertEqual(service._config["cloak"]["license_key"], "cloak-token")
+        self.assertEqual(service._config["sms"]["api_key"], "sms-token")
+        self.assertEqual(service._config["sms"]["l_admin_auth_code"], "l-code")
+        self.assertEqual(service._config["sms"]["h_admin_auth_code"], "h-code")
+        self.assertNotIn("has_api_key", service._config["browser_use"])
+        self.assertNotIn("has_h_admin_auth_code", service._config["sms"])
+
+    def test_attach_codex_oauth_cpa_pending_adds_account_metadata(self):
+        result = {"email": "new@example.com", "access_token": "access-token"}
+
+        with (
+            patch.object(openai_register, "config", {**openai_register.config, "codex_oauth_cpa_pool_id": "pool-1"}),
+            patch("services.cpa_service.cpa_config", SimpleNamespace(get_pool=lambda pool_id: {"id": pool_id, "base_url": "https://cpa.example"})),
+            patch(
+                "services.cpa_service.request_codex_auth_url",
+                return_value={"auth_url": "https://auth.openai.com/oauth?state=state-1", "state": "state-1"},
+            ),
+        ):
+            openai_register._attach_codex_oauth_cpa_pending(result, 1)
+
+        self.assertEqual(result["codex_oauth"]["status"], "pending_callback")
+        self.assertEqual(result["codex_oauth"]["provider"], "cpa")
+        self.assertEqual(result["codex_oauth"]["pool_id"], "pool-1")
+        self.assertEqual(result["codex_oauth"]["state"], "state-1")
+        self.assertNotIn("codex_oauth_error", result)
+
+    def test_attach_codex_oauth_cpa_pending_keeps_account_when_pool_missing(self):
+        result = {"email": "new@example.com", "access_token": "access-token"}
+
+        with patch.object(openai_register, "config", {**openai_register.config, "codex_oauth_cpa_pool_id": ""}):
+            openai_register._attach_codex_oauth_cpa_pending(result, 1)
+
+        self.assertEqual(result["codex_oauth_error"], "codex_oauth_cpa_pool_id is not configured")
+        self.assertNotIn("codex_oauth", result)
+
+    def test_enqueue_registration_plan_check_uses_registration_auto_trigger(self):
+        calls = []
+        fake_service = SimpleNamespace(
+            start=lambda access_tokens, proxy="", trigger="manual": calls.append(
+                {"access_tokens": access_tokens, "proxy": proxy, "trigger": trigger}
+            )
+            or {"accepted": 1, "skipped_items": []}
+        )
+
+        with patch.dict("sys.modules", {"services.account_plan_check_service": SimpleNamespace(account_plan_check_service=fake_service)}):
+            openai_register._enqueue_registration_plan_check("access-token", {"proxy": "http://proxy"}, 1)
+
+        self.assertEqual(calls, [{"access_tokens": ["access-token"], "proxy": "http://proxy", "trigger": "registration_auto"}])
+
     def test_worker_saves_registered_account_with_codex_agent_identity_when_enabled(self):
         saved_items = []
 
@@ -361,8 +530,9 @@ class RegisterProxyRuntimeTests(unittest.TestCase):
         )
 
         with (
-            patch.object(openai_register, "config", {**openai_register.config, "codex_agent_identity_enabled": True, "codex_agent_identity_verify_task": False}),
-            patch.object(openai_register, "PlatformRegistrar", FakeRegistrar),
+            patch.object(openai_register, "config", {**openai_register.config, "registration_driver": "chatgpt_web", "codex_agent_identity_enabled": True, "codex_agent_identity_verify_task": False}),
+            patch.object(openai_register, "create_driver", return_value=FakeRegistrar("")),
+            patch.object(openai_register, "get_driver_info", return_value=SimpleNamespace(supports_agent_identity=True)),
             patch.object(openai_register, "account_service", FakeAccountService()),
             patch.object(openai_register.codex_agent_identity_service, "create_agent_identity", return_value=identity_result) as create_identity,
         ):
@@ -411,8 +581,9 @@ class RegisterProxyRuntimeTests(unittest.TestCase):
                 return {"refreshed": 1, "errors": [], "items": saved_items}
 
         with (
-            patch.object(openai_register, "config", {**openai_register.config, "codex_agent_identity_enabled": True, "codex_agent_identity_verify_task": False}),
-            patch.object(openai_register, "PlatformRegistrar", FakeRegistrar),
+            patch.object(openai_register, "config", {**openai_register.config, "registration_driver": "chatgpt_web", "codex_agent_identity_enabled": True, "codex_agent_identity_verify_task": False}),
+            patch.object(openai_register, "create_driver", return_value=FakeRegistrar("")),
+            patch.object(openai_register, "get_driver_info", return_value=SimpleNamespace(supports_agent_identity=True)),
             patch.object(openai_register, "account_service", FakeAccountService()),
             patch.object(openai_register.codex_agent_identity_service, "create_agent_identity", side_effect=RuntimeError("authapi unavailable")) as create_identity,
         ):

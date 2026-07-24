@@ -12,10 +12,12 @@ from fastapi.testclient import TestClient
 import api.accounts as accounts_module
 from services.account_service import AccountService
 from services.codex_agent_identity_service import (
+    CodexAgentIdentityError,
     access_token_claims,
     create_agent_identity,
     extract_access_token,
     generate_ed25519_keypair,
+    register_agent,
     register_task,
 )
 
@@ -52,6 +54,11 @@ class FakeResponse:
 
     def json(self) -> dict[str, Any]:
         return dict(self._data)
+
+
+class FakeInvalidJsonResponse(FakeResponse):
+    def json(self) -> dict[str, Any]:
+        raise ValueError("Expecting value: line 1 column 1 (char 0)")
 
 
 class MemoryStorage:
@@ -118,6 +125,33 @@ class CodexAgentIdentityServiceTests(unittest.TestCase):
         self.assertRegex(captured["json"]["timestamp"], r"^\d{4}-\d{2}-\d{2}T")
         self.assertTrue(base64.b64decode(captured["json"]["signature"]))
 
+    def test_register_agent_raises_helpful_error_for_invalid_json(self) -> None:
+        private_key_b64, public_key_ssh = generate_ed25519_keypair()
+
+        with mock.patch(
+            "services.codex_agent_identity_service.requests.post",
+            return_value=FakeInvalidJsonResponse(status_code=200, text=""),
+        ):
+            with self.assertRaises(CodexAgentIdentityError) as ctx:
+                register_agent("access-token", public_key_ssh)
+
+        self.assertIn("Agent registration returned invalid JSON", str(ctx.exception))
+        self.assertIn("status=200", str(ctx.exception))
+        self.assertNotIn("access-token", str(ctx.exception))
+
+    def test_register_task_raises_helpful_error_for_invalid_json(self) -> None:
+        private_key_b64, _public_key = generate_ed25519_keypair()
+
+        with mock.patch(
+            "services.codex_agent_identity_service.requests.post",
+            return_value=FakeInvalidJsonResponse(status_code=200, text=""),
+        ):
+            with self.assertRaises(CodexAgentIdentityError) as ctx:
+                register_task("access-token", "runtime_123", private_key_b64)
+
+        self.assertIn("Task registration returned invalid JSON", str(ctx.exception))
+        self.assertIn("status=200", str(ctx.exception))
+
     def test_create_agent_identity_returns_warning_when_task_verification_fails(self) -> None:
         token = make_jwt(access_token_payload())
 
@@ -134,34 +168,60 @@ class CodexAgentIdentityServiceTests(unittest.TestCase):
         self.assertEqual(result.account_payload["agent_identity"]["agent_runtime_id"], "runtime_123")
         self.assertEqual(result.verify_warning, "task failed")
 
-    def test_create_agent_identity_allows_opaque_token_and_uses_metadata(self) -> None:
+    def test_create_agent_identity_rejects_platform_oauth_token_before_registering_agent(self) -> None:
+        with mock.patch("services.codex_agent_identity_service.register_agent") as register_agent_mock:
+            with self.assertRaises(CodexAgentIdentityError) as ctx:
+                create_agent_identity(
+                    "token:4183315650",
+                    verify_task=False,
+                    metadata={
+                        "email": "new@example.com",
+                        "account_id": "acct_123",
+                        "user_id": "user_123",
+                        "plan_type": "plus",
+                    },
+                )
+
+        register_agent_mock.assert_not_called()
+        self.assertIn("ChatGPT Web session accessToken", str(ctx.exception))
+        self.assertIn("unsupported_agent_delegator", str(ctx.exception))
+
+    def test_create_agent_identity_rejects_jwt_without_delegator_claims(self) -> None:
+        token = make_jwt({"https://api.openai.com/profile": {"email": "new@example.com"}})
+
+        with mock.patch("services.codex_agent_identity_service.register_agent") as register_agent_mock:
+            with self.assertRaises(CodexAgentIdentityError) as ctx:
+                create_agent_identity(
+                    token,
+                    verify_task=False,
+                    metadata={
+                        "account_id": "acct_123",
+                        "user_id": "user_123",
+                    },
+                )
+
+        register_agent_mock.assert_not_called()
+        self.assertIn("token missing ChatGPT account claims", str(ctx.exception))
+
+    def test_create_agent_identity_uses_metadata_with_valid_session_delegator(self) -> None:
+        token = make_jwt(access_token_payload())
+
         with mock.patch("services.codex_agent_identity_service.register_agent", return_value="runtime_123"):
             result = create_agent_identity(
-                "token:4183315650",
+                token,
                 verify_task=False,
                 metadata={
-                    "email": "new@example.com",
-                    "account_id": "acct_123",
-                    "user_id": "user_123",
-                    "plan_type": "plus",
+                    "email": "metadata@example.com",
+                    "plan_type": "pro",
                 },
             )
 
-        self.assertEqual(result.account_payload["access_token"], "token:4183315650")
+        self.assertEqual(result.account_payload["access_token"], token)
         self.assertEqual(result.account_payload["export_type"], "codex_agent_identity")
-        self.assertEqual(result.account_payload["email"], "new@example.com")
+        self.assertEqual(result.account_payload["email"], "test@example.com")
         self.assertEqual(result.account_payload["account_id"], "acct_123")
         self.assertEqual(result.account_payload["user_id"], "user_123")
         self.assertEqual(result.auth_json["agent_identity"]["plan_type"], "plus")
-
-    def test_create_agent_identity_allows_missing_account_metadata(self) -> None:
-        with mock.patch("services.codex_agent_identity_service.register_agent", return_value="runtime_123"):
-            result = create_agent_identity("token:4183315650", verify_task=False)
-
-        self.assertEqual(result.account_payload["access_token"], "token:4183315650")
-        self.assertEqual(result.account_payload["account_id"], "")
-        self.assertEqual(result.account_payload["user_id"], "")
-        self.assertEqual(result.account_payload["agent_identity"]["agent_runtime_id"], "runtime_123")
 
     def test_account_import_preserves_agent_identity_and_plan_type_rule(self) -> None:
         token = make_jwt(access_token_payload())
@@ -225,13 +285,10 @@ class CodexAgentIdentityApiTests(unittest.TestCase):
         self.assertEqual(payload["added"], 1)
         self.assertEqual(self.service.get_account(token)["agent_identity"]["agent_runtime_id"], "runtime_123")
 
-    def test_codex_agent_identity_accepts_opaque_token_session_json_and_imports_account(self) -> None:
+    def test_codex_agent_identity_rejects_opaque_token_session_json(self) -> None:
         token = "token:4183315650"
 
-        with (
-            mock.patch("services.codex_agent_identity_service.register_agent", return_value="runtime_123"),
-            mock.patch("services.codex_agent_identity_service.register_task", return_value="task_123"),
-        ):
+        with mock.patch("services.codex_agent_identity_service.register_agent") as register_agent_mock:
             response = self.client.post(
                 "/api/accounts/codex-agent-identity",
                 headers=AUTH_HEADERS,
@@ -244,12 +301,11 @@ class CodexAgentIdentityApiTests(unittest.TestCase):
                 },
             )
 
-        self.assertEqual(response.status_code, 200, response.text)
-        payload = response.json()
-        self.assertEqual(payload["account_payload"]["export_type"], "codex_agent_identity")
-        self.assertEqual(payload["account_payload"]["email"], "new@example.com")
-        self.assertEqual(payload["account_payload"]["account_id"], "acct_123")
-        self.assertEqual(self.service.get_account(token)["agent_identity"]["chatgpt_user_id"], "user_123")
+        self.assertEqual(response.status_code, 400, response.text)
+        self.assertIn("ChatGPT Web session accessToken", response.text)
+        self.assertIn("unsupported_agent_delegator", response.text)
+        register_agent_mock.assert_not_called()
+        self.assertIsNone(self.service.get_account(token))
 
     def test_codex_agent_identity_redacts_agent_registration_errors(self) -> None:
         token = make_jwt(access_token_payload())

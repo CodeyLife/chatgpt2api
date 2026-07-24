@@ -20,7 +20,14 @@ from curl_cffi import requests
 from services.account_service import account_service
 from services.codex_agent_identity_service import codex_agent_identity_service
 from services.proxy_service import ClearanceBundle, proxy_settings
-from services.register import mail_provider
+from services.register import flow_trigger, mail_provider
+from services.register.driver_registry import create_driver, get_driver_info, list_drivers, register_driver
+from services.register.sentinel_service import (
+    SentinelOptions,
+    build_sentinel_headers as _build_sentinel_headers_service,
+    create_chromium_sentinel_session,
+)
+from services.register.profile_utils import birthday_from_config
 from utils.fingerprint import BrowserProfile, build_common_headers, build_navigate_headers, random_profile
 
 base_dir = Path(__file__).resolve().parent
@@ -33,6 +40,7 @@ config = {
         "providers": [],
     },
     "proxy": "",
+    "registration_driver": "platform_oauth",
     "total": 10,
     "threads": 3,
     "sentinel_browser_enabled": True,
@@ -43,6 +51,103 @@ config = {
     "sentinel_browser_fallback": True,
     "codex_agent_identity_enabled": False,
     "codex_agent_identity_verify_task": True,
+    "codex_oauth_enabled": False,
+    "codex_oauth_via_cpa": True,
+    "codex_oauth_cpa_pool_id": "",
+    "humanize": {
+        "enabled": True,
+        "factor": 1.0,
+        "delays": {},
+    },
+    "chatgpt_web": {
+        "bootstrap_enabled": True,
+        "bootstrap_strict": False,
+    },
+    "profile": {
+        "min_age": 18,
+        "max_age": 65,
+    },
+    "flow_trigger": {
+        "enabled": False,
+        "url": "",
+        "bearer": "",
+        "cookie": "",
+        "payload": {},
+        "access_token_key": "access_token",
+        "timeout": 30,
+        "origin": "",
+        "referer": "",
+        "user_agent": "",
+        "use_register_proxy": False,
+        "verify_ssl": True,
+    },
+    "browser_use": {
+        "api_key": "",
+        "cdp_base": "wss://connect.browser-use.com",
+        "proxy_country_code": "",
+        "profile_id": "",
+        "session_timeout": 240,
+        "start_url": "https://chatgpt.com/auth/login",
+        "timeout": 90,
+    },
+    "skyvern": {
+        "api_key": "",
+        "api_base": "https://api.skyvern.com",
+        "proxy_location": "",
+        "browser_profile_id": "",
+        "browser_session_timeout": 60,
+        "start_url": "https://chatgpt.com/auth/login",
+        "timeout": 90,
+    },
+    "roxy": {
+        "api_base": "http://127.0.0.1:50100",
+        "api_token": "",
+        "profile_id": "",
+        "workspace_id": "",
+        "project_id": "",
+        "open_path": "/browser/open",
+        "close_path": "/browser/close",
+        "create_path": "/browser/create",
+        "delete_path": "/browser/delete",
+        "open_headless": False,
+        "keep_browser_open": False,
+        "one_profile_per_account": False,
+        "delete_profile_after_run": False,
+        "create_use_proxy": False,
+        "proxy_check_channel": "",
+        "start_url": "https://chatgpt.com/auth/login",
+        "timeout": 90,
+    },
+    "cloak": {
+        "headless": True,
+        "humanize": True,
+        "geoip": True,
+        "use_proxy": True,
+        "locale": "",
+        "timezone": "",
+        "accept_language": "",
+        "license_key": "",
+        "fingerprint_seed": "",
+        "user_data_dir": "",
+        "extra_args": [],
+        "keep_browser_open": False,
+        "start_url": "https://chatgpt.com/auth/login",
+        "timeout": 90,
+    },
+    "sms": {
+        "enabled": False,
+        "provider": "grizzly",
+        "api_base": "https://api.grizzlysms.com/stubs/handler_api.php",
+        "api_key": "",
+        "service": "ot",
+        "country": "187",
+        "wait_timeout": 180,
+        "poll_interval": 5,
+        "l_api_base": "",
+        "l_admin_auth_code": "",
+        "h_api_base": "",
+        "h_admin_auth_code": "",
+    },
     "new_account_warmup_minutes": 30,
     "new_account_verify_delay_seconds": 120,
     "new_account_max_verify_workers": 2,
@@ -50,6 +155,7 @@ config = {
 REGISTER_RUNTIME_CONFIG_KEYS = (
     "mail",
     "proxy",
+    "registration_driver",
     "total",
     "threads",
     "sentinel_browser_enabled",
@@ -60,6 +166,18 @@ REGISTER_RUNTIME_CONFIG_KEYS = (
     "sentinel_browser_fallback",
     "codex_agent_identity_enabled",
     "codex_agent_identity_verify_task",
+    "codex_oauth_enabled",
+    "codex_oauth_via_cpa",
+    "codex_oauth_cpa_pool_id",
+    "humanize",
+    "chatgpt_web",
+    "profile",
+    "flow_trigger",
+    "browser_use",
+    "skyvern",
+    "roxy",
+    "cloak",
+    "sms",
     "new_account_warmup_minutes",
     "new_account_verify_delay_seconds",
     "new_account_max_verify_workers",
@@ -160,7 +278,7 @@ def _random_name() -> tuple[str, str]:
     return random.choice(first_names), random.choice(last_names)
 
 def _random_birthdate() -> str:
-    return f"{random.randint(1996, 2006):04d}-{random.randint(1, 12):02d}-{random.randint(1, 28):02d}"
+    return birthday_from_config(config)
 
 
 def _response_json(resp) -> dict:
@@ -264,6 +382,8 @@ def _classify_failure(step_name: str, resp, error: str = "") -> str:
         code = err
     message = message or str(data.get("message") or data.get("detail") or "").strip()
     joined = f"{code} {message} {text[:500]}".lower()
+    if "unsupported_email" in joined or "email you provided is not supported" in joined:
+        return "邮箱地址不被上游支持：更换邮箱域名/邮箱供应商后重试"
     if "invalid_auth_step" in joined:
         return "注册步骤不匹配：authorize 可能落入登录分支、会话状态失效，或 screen_hint/login_hint 未被上游接受"
     if "failed to create account" in joined:
@@ -534,14 +654,10 @@ def build_sentinel_headers(
     优先用真实 Chromium 执行 Sentinel SDK，失败时按 sentinel_browser_fallback 决定
     是否回退到后端 PoW。
     """
-    if sentinel_browser_enabled:
-        try:
-            if sentinel_browser_session is not None:
-                browser_result = sentinel_browser_session.get_token(flow=flow, device_id=device_id)
-            elif sentinel_browser_provider is not None:
-                browser_result = sentinel_browser_provider.token(flow=flow, device_id=device_id)
-            else:
-                browser_result = build_chromium_sentinel_token(
+    if sentinel_browser_enabled and sentinel_browser_provider is None and sentinel_browser_session is None:
+        class _OneShotChromiumSentinelProvider:
+            def token(self, *, flow: str, device_id: str):
+                return build_chromium_sentinel_token(
                     flow=flow,
                     device_id=device_id,
                     user_agent=profile.user_agent,
@@ -551,31 +667,27 @@ def build_sentinel_headers(
                     chrome_path=sentinel_browser_chrome_path,
                     timeout=sentinel_browser_timeout,
                 )
-            headers = {"openai-sentinel-token": browser_result.token}
-            if browser_result.so_token:
-                headers["openai-sentinel-so-token"] = browser_result.so_token
-            # 浏览器 SDK 已产出完整 header；这里仅解析一次，确保格式异常能尽早暴露。
-            if not _challenge_cookie_from_sentinel_header(browser_result.token):
-                raise RuntimeError("Chromium Sentinel token 缺少 c 字段")
-            return headers
-        except Exception as error:
-            if not sentinel_browser_fallback:
-                raise RuntimeError(f"chromium_sentinel_failed: {error}") from error
-            log(f"Chromium Sentinel 获取失败，回退后端 PoW: {error}", "yellow")
-    sentinel_val, _oai_sc_val, so_val = _build_sentinel_tokens_tuple(
+
+        sentinel_browser_provider = _OneShotChromiumSentinelProvider()
+
+    return _build_sentinel_headers_service(
         session,
         device_id,
         flow,
-        user_agent=profile.user_agent,
-        sec_ch_ua=profile.sec_ch_ua,
-        screen_resolution=profile.screen_resolution,
-        hardware_concurrency=profile.hardware_concurrency,
-        sec_ch_ua_platform=profile.sec_ch_ua_platform,
+        profile,
+        options=SentinelOptions(
+            browser_enabled=sentinel_browser_enabled,
+            browser_headless=sentinel_browser_headless,
+            browser_timeout=sentinel_browser_timeout,
+            browser_chrome_path=sentinel_browser_chrome_path,
+            browser_sdk_url=sentinel_browser_sdk_url,
+            browser_fallback=sentinel_browser_fallback,
+        ),
+        browser_provider=sentinel_browser_provider,
+        browser_session=sentinel_browser_session,
+        pow_builder=_build_sentinel_tokens_tuple,
+        log=log,
     )
-    headers = {"openai-sentinel-token": sentinel_val}
-    if so_val:
-        headers["openai-sentinel-so-token"] = so_val
-    return headers
 
 
 def create_session(proxy: str = "", impersonate: str = "chrome") -> Any:
@@ -710,18 +822,24 @@ class PlatformRegistrar:
         self.clearance_user_agent = ""
         self.clearance_failure_reason = ""
         self.device_id = str(uuid.uuid4())
+        self.auth_session_logging_id = str(uuid.uuid4())
         self.code_verifier = ""
         self.platform_auth_code = ""
+        self.continue_url = ""
         self.sentinel_options = _sentinel_browser_options()
         self.sentinel_browser_session: ChromiumSentinelSession | None = None
         if self.sentinel_options["sentinel_browser_enabled"]:
-            self.sentinel_browser_session = ChromiumSentinelSession(
-                user_agent=self.profile.user_agent,
-                sdk_url=self.sentinel_options["sentinel_browser_sdk_url"] or DEFAULT_CHROMIUM_SENTINEL_SDK_URL,
-                screen_resolution=self.profile.screen_resolution,
-                headless=self.sentinel_options["sentinel_browser_headless"],
-                chrome_path=self.sentinel_options["sentinel_browser_chrome_path"],
-                timeout=self.sentinel_options["sentinel_browser_timeout"],
+            self.sentinel_browser_session = create_chromium_sentinel_session(
+                self.profile,
+                SentinelOptions(
+                    browser_enabled=True,
+                    browser_headless=self.sentinel_options["sentinel_browser_headless"],
+                    browser_timeout=self.sentinel_options["sentinel_browser_timeout"],
+                    browser_chrome_path=self.sentinel_options["sentinel_browser_chrome_path"],
+                    browser_sdk_url=self.sentinel_options["sentinel_browser_sdk_url"],
+                    browser_fallback=self.sentinel_options["sentinel_browser_fallback"],
+                ),
+                session_factory=ChromiumSentinelSession,
             )
             self.sentinel_options["sentinel_browser_session"] = self.sentinel_browser_session
             self.sentinel_options["sentinel_browser_provider"] = self.sentinel_browser_session
@@ -900,7 +1018,8 @@ class PlatformRegistrar:
                 step(index, "创建账号失败提示: 邮箱域名很可能因滥用被封禁，请更换邮箱域名", "yellow")
             _raise_step_failure(index, "create_account", "POST", url, resp, error, headers, {"name": name, "birthdate": birthdate}, prefix="create_account")
         data = _response_json(resp)
-        callback_params = extract_oauth_callback_params_from_url(str(data.get("continue_url") or "").strip())
+        self.continue_url = str(data.get("continue_url") or "").strip()
+        callback_params = extract_oauth_callback_params_from_url(self.continue_url)
         self.platform_auth_code = str((callback_params or {}).get("code") or "").strip()
         step(index, "创建账号资料完成")
 
@@ -955,13 +1074,17 @@ class PlatformRegistrar:
 
 def worker(index: int) -> dict:
     start = time.time()
-    registrar = PlatformRegistrar(config["proxy"])
+    driver_name = str(config.get("registration_driver") or "platform_oauth").strip().lower()
+    registrar = None
     try:
-        step(index, "任务启动")
+        step(index, f"任务启动，注册驱动={driver_name}")
+        registrar = create_driver(driver_name, config)
         result = registrar.register(index)
         cost = time.time() - start
         access_token = str(result["access_token"])
-        if config.get("codex_agent_identity_enabled"):
+        driver_info = get_driver_info(driver_name)
+        supports_agent_identity = bool(driver_info and driver_info.supports_agent_identity)
+        if config.get("codex_agent_identity_enabled") and supports_agent_identity:
             step(index, "开始注册 Codex Agent Identity")
             try:
                 identity_result = codex_agent_identity_service.create_agent_identity(
@@ -987,7 +1110,16 @@ def worker(index: int) -> dict:
                     step(index, f"Codex Agent Identity 已生成，task 验证失败: {identity_result.verify_warning}", "yellow")
                 else:
                     step(index, "Codex Agent Identity 已生成并验证")
+        elif config.get("codex_agent_identity_enabled"):
+            result["codex_agent_identity_error"] = (
+                f"registration driver {driver_name} does not return ChatGPT Web session accessToken"
+            )
+            step(index, "当前注册驱动不支持 Codex Agent Identity，已跳过生成并保留基础账号", "yellow")
+        if config.get("codex_oauth_enabled") and config.get("codex_oauth_via_cpa", True):
+            _attach_codex_oauth_cpa_pending(result, index)
         account_service.add_account_items([result])
+        _enqueue_registration_plan_check(access_token, result, index)
+        _attach_flow_trigger_result(access_token, result, index)
         refresh_result = account_service.verify_new_accounts([access_token])
         if refresh_result.get("errors"):
             step(index, f"账号已保存，首次健康验证暂未成功，稍后自动复查: {refresh_result['errors']}", "yellow")
@@ -1011,4 +1143,150 @@ def worker(index: int) -> dict:
             "artifact_path": getattr(e, "artifact_path", ""),
         }
     finally:
-        registrar.close(index)
+        if registrar is not None:
+            registrar.close(index)
+
+
+def _enqueue_registration_plan_check(access_token: str, result: dict, index: int) -> None:
+    try:
+        from services.account_plan_check_service import account_plan_check_service
+
+        queued = account_plan_check_service.start(
+            [access_token],
+            proxy=str(result.get("proxy") or config.get("proxy") or ""),
+            trigger="registration_auto",
+        )
+        if int(queued.get("accepted") or 0) > 0:
+            step(index, "已提交注册后套餐复查任务")
+        elif queued.get("skipped_items"):
+            step(index, f"注册后套餐复查未入队: {queued.get('skipped_items')}", "yellow")
+    except Exception as exc:
+        step(index, f"注册后套餐复查入队失败，账号仍会保存: {exc}", "yellow")
+
+
+def _attach_codex_oauth_cpa_pending(result: dict, index: int) -> None:
+    pool_id = str(config.get("codex_oauth_cpa_pool_id") or "").strip()
+    if not pool_id:
+        result["codex_oauth_error"] = "codex_oauth_cpa_pool_id is not configured"
+        step(index, "Codex OAuth 已启用，但未配置 CPA 连接，已跳过待授权地址生成", "yellow")
+        return
+    try:
+        from services.cpa_service import cpa_config, request_codex_auth_url
+
+        pool = cpa_config.get_pool(pool_id)
+        if pool is None:
+            raise RuntimeError(f"CPA pool not found: {pool_id}")
+        auth = request_codex_auth_url(pool)
+    except Exception as exc:
+        result["codex_oauth_error"] = str(exc)
+        step(index, f"Codex OAuth CPA 授权地址生成失败，账号仍会保存: {exc}", "yellow")
+        return
+    result["codex_oauth"] = {
+        "status": "pending_callback",
+        "provider": "cpa",
+        "pool_id": pool_id,
+        "auth_url": auth.get("auth_url", ""),
+        "state": auth.get("state", ""),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+    step(index, "Codex OAuth CPA 授权地址已生成，账号记录已保存 pending_callback")
+
+
+def _attach_flow_trigger_result(access_token: str, result: dict, index: int) -> None:
+    if not isinstance(config.get("flow_trigger"), dict) or not config["flow_trigger"].get("enabled"):
+        return
+    step(index, "开始触发注册后 Flow")
+    try:
+        trigger_result = flow_trigger.trigger_flow(access_token, config)
+        result["flow_trigger"] = trigger_result
+        try:
+            account_service.update_account(access_token, {"flow_trigger": trigger_result}, quiet=True)
+        except Exception as update_error:
+            result["flow_trigger_update_error"] = str(update_error)
+            step(index, f"注册后 Flow 结果写回失败，账号已保留: {update_error}", "yellow")
+        if trigger_result.get("ok"):
+            step(index, f"注册后 Flow 触发成功: {trigger_result.get('flow_id') or '-'}")
+        else:
+            step(index, f"注册后 Flow 触发失败，账号已保留: {trigger_result.get('message') or trigger_result.get('status')}", "yellow")
+    except Exception as exc:
+        result["flow_trigger"] = {"status": "failed", "ok": False, "message": str(exc)}
+        step(index, f"注册后 Flow 触发异常，账号已保留: {exc}", "yellow")
+
+
+def _platform_oauth_driver_factory(runtime_config: dict) -> PlatformRegistrar:
+    return PlatformRegistrar(str(runtime_config.get("proxy") or ""))
+
+
+class UnavailableRegistrationDriver:
+    def __init__(self, name: str, reason: str) -> None:
+        self.name = name
+        self.reason = reason
+
+    def register(self, index: int) -> dict:
+        raise RuntimeError(f"registration driver {self.name} is not available: {self.reason}")
+
+    def close(self, index: int | None = None) -> None:
+        return None
+
+
+def _unavailable_driver_factory(name: str, reason: str):
+    def factory(runtime_config: dict) -> UnavailableRegistrationDriver:
+        return UnavailableRegistrationDriver(name, reason)
+
+    return factory
+
+
+register_driver(
+    "platform_oauth",
+    _platform_oauth_driver_factory,
+    label="Platform OAuth",
+    supports_agent_identity=False,
+    description="现有 platform.openai.com OAuth 注册流程，返回 Platform token。",
+)
+
+try:
+    from services.register.chatgpt_web import create_chatgpt_web_driver
+    from services.register.browser_registration import create_browser_use_driver, create_cloak_driver, create_roxy_driver, create_skyvern_driver
+
+    register_driver(
+        "chatgpt_web",
+        create_chatgpt_web_driver,
+        label="ChatGPT Web Session",
+        supports_agent_identity=True,
+        supports_codex_oauth=True,
+        description="ChatGPT NextAuth 注册流程，返回 /api/auth/session accessToken。",
+    )
+    register_driver(
+        "browser_use",
+        create_browser_use_driver,
+        label="Browser Use",
+        supports_agent_identity=True,
+        supports_codex_oauth=True,
+        description="Browser Use 云浏览器页面注册流程，读取 ChatGPT Web /api/auth/session accessToken。",
+    )
+    register_driver(
+        "skyvern",
+        create_skyvern_driver,
+        label="Skyvern",
+        supports_agent_identity=True,
+        supports_codex_oauth=True,
+        description="Skyvern 云浏览器页面注册流程，读取 ChatGPT Web /api/auth/session accessToken。",
+    )
+    register_driver(
+        "roxy",
+        create_roxy_driver,
+        label="RoxyBrowser",
+        supports_agent_identity=True,
+        supports_codex_oauth=True,
+        description="RoxyBrowser 本地指纹浏览器 + Playwright CDP 页面注册流程，读取 ChatGPT Web accessToken。",
+    )
+    register_driver(
+        "cloak",
+        create_cloak_driver,
+        label="CloakBrowser",
+        supports_agent_identity=True,
+        supports_codex_oauth=True,
+        description="CloakBrowser 本地指纹浏览器页面注册流程，读取 ChatGPT Web accessToken。",
+    )
+except Exception as exc:
+    log(f"ChatGPT Web/云浏览器注册驱动加载失败: {exc}", "yellow")

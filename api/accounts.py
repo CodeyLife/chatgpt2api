@@ -24,8 +24,20 @@ from api.support import (
     sanitize_sub2api_servers,
 )
 from services.account_service import account_service
+from services.account_plan_check_service import account_plan_check_service
+from services.chatgpt_plan_service import chatgpt_plan_service
 from services.codex_agent_identity_service import CodexAgentIdentityError, codex_agent_identity_service
-from services.cpa_service import cpa_config, cpa_import_service, list_remote_files
+from services.codex_management_service import codex_management_service
+from services.codex_oauth_service import CodexOAuthError, codex_oauth_service
+from services.codex_oauth_retry_service import codex_oauth_retry_service
+from services.cpa_service import (
+    cpa_config,
+    cpa_import_service,
+    list_remote_files,
+    request_codex_auth_url,
+    submit_codex_oauth_callback,
+)
+from services.extract_link_service import ExtractLinkError, extract_link_service
 from services.oauth_login_service import OAuthLoginError, oauth_login_service
 from services.sub2api_service import (
     list_remote_accounts as sub2api_list_remote_accounts,
@@ -59,6 +71,41 @@ class AccountRefreshRequest(BaseModel):
     access_tokens: list[str] = Field(default_factory=list)
 
 
+class AccountCodexOAuthRetryRequest(BaseModel):
+    access_tokens: list[str] = Field(default_factory=list)
+    cpa_pool_id: str = ""
+
+
+class AccountCodexOAuthCallbackRequest(BaseModel):
+    access_token: str = ""
+    callback_url: str = ""
+    cpa_pool_id: str = ""
+
+
+class AccountCodexOAuthBrowserCallbackRequest(BaseModel):
+    access_token: str = ""
+    provider: str = ""
+    cpa_pool_id: str = ""
+    timeout_seconds: int | None = None
+
+
+class AccountPlanCheckRequest(BaseModel):
+    access_token: str = ""
+    proxy: str = ""
+
+
+class AccountPlanCheckBatchRequest(BaseModel):
+    access_tokens: list[str] = Field(default_factory=list)
+    proxy: str = ""
+    trigger: str = "manual"
+
+
+class AccountExtractLinkRequest(BaseModel):
+    access_tokens: list[str] = Field(default_factory=list)
+    link_type: Literal["pix", "upi", ""] = ""
+    cdk: str = ""
+
+
 class AccountExportRequest(BaseModel):
     access_tokens: list[str] = Field(default_factory=list)
     format: Literal["json", "zip"] = "json"
@@ -70,6 +117,12 @@ class AccountUpdateRequest(BaseModel):
     status: str | None = None
     quota: int | None = None
     proxy: str | None = None
+    note: str | None = None
+
+
+class AccountNoteUpdateRequest(BaseModel):
+    access_tokens: list[str] = Field(default_factory=list)
+    note: str = ""
 
 
 class CodexAgentIdentityRequest(BaseModel):
@@ -93,6 +146,22 @@ class CPAPoolUpdateRequest(BaseModel):
 
 class CPAImportRequest(BaseModel):
     names: list[str] = Field(default_factory=list)
+
+
+class CPACodexOAuthCallbackRequest(BaseModel):
+    callback_url: str = ""
+    import_account: bool = True
+
+
+class CodexOAuthAuthorizeRequest(BaseModel):
+    prompt: str = "login"
+
+
+class CodexOAuthCallbackRequest(BaseModel):
+    callback_url: str = ""
+    code_verifier: str = ""
+    state: str = ""
+    import_account: bool = True
 
 
 class Sub2APIServerCreateRequest(BaseModel):
@@ -279,6 +348,33 @@ def create_router() -> APIRouter:
             response.update(add_result)
         return response
 
+    @router.post("/api/codex-oauth/auth-url")
+    async def codex_oauth_auth_url(
+            body: CodexOAuthAuthorizeRequest,
+            authorization: str | None = Header(default=None),
+    ):
+        require_admin(authorization)
+        return codex_oauth_service.build_authorize_url(prompt=body.prompt)
+
+    @router.post("/api/codex-oauth/callback")
+    async def codex_oauth_callback(
+            body: CodexOAuthCallbackRequest,
+            authorization: str | None = Header(default=None),
+    ):
+        require_admin(authorization)
+        try:
+            return await run_in_threadpool(
+                codex_oauth_service.finish_oauth_callback,
+                body.callback_url,
+                body.code_verifier,
+                expected_state=body.state,
+                import_account=body.import_account,
+            )
+        except CodexOAuthError as exc:
+            raise HTTPException(status_code=400, detail={"error": str(exc)}) from exc
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail={"error": str(exc)}) from exc
+
     @router.delete("/api/accounts")
     async def delete_accounts(body: AccountDeleteRequest, authorization: str | None = Header(default=None)):
         require_admin(authorization)
@@ -307,6 +403,136 @@ def create_router() -> APIRouter:
         asyncio.create_task(_do_refresh())
 
         return {"progress_id": progress_id}
+
+    @router.post("/api/accounts/plan-check")
+    async def check_account_plan(body: AccountPlanCheckRequest, authorization: str | None = Header(default=None)):
+        require_admin(authorization)
+        access_token = str(body.access_token or "").strip()
+        if not access_token:
+            raise HTTPException(status_code=400, detail={"error": "access_token is required"})
+        return await run_in_threadpool(
+            chatgpt_plan_service.check_account_plan,
+            access_token,
+            proxy=body.proxy,
+            account=account_service.get_account(access_token),
+        )
+
+    @router.get("/api/accounts/plan-check-status")
+    async def get_account_plan_check_status(limit: int = 5000, authorization: str | None = Header(default=None)):
+        require_admin(authorization)
+        snapshot = account_plan_check_service.status_snapshot(limit=limit)
+        snapshot["queue"] = account_plan_check_service.queue_settings()
+        return snapshot
+
+    @router.post("/api/accounts/plan-check/batch")
+    async def start_account_plan_check(body: AccountPlanCheckBatchRequest, authorization: str | None = Header(default=None)):
+        require_admin(authorization)
+        access_tokens = _unique_tokens(body.access_tokens)
+        if not access_tokens:
+            raise HTTPException(status_code=400, detail={"error": "access_tokens is required"})
+        try:
+            return account_plan_check_service.start(access_tokens, proxy=body.proxy, trigger=body.trigger)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail={"error": str(exc)}) from exc
+
+    @router.get("/api/accounts/extract-link")
+    async def get_extract_link_settings(authorization: str | None = Header(default=None)):
+        require_admin(authorization)
+        return {"settings": extract_link_service.public_settings()}
+
+    @router.post("/api/accounts/extract-link/cdk")
+    async def query_extract_link_cdk(body: AccountExtractLinkRequest, authorization: str | None = Header(default=None)):
+        require_admin(authorization)
+        try:
+            return await run_in_threadpool(extract_link_service.query_cdk, cdk=body.cdk)
+        except ExtractLinkError as exc:
+            raise HTTPException(status_code=400, detail={"error": str(exc)}) from exc
+
+    @router.post("/api/accounts/extract-link")
+    async def start_extract_link(body: AccountExtractLinkRequest, authorization: str | None = Header(default=None)):
+        require_admin(authorization)
+        access_tokens = _unique_tokens(body.access_tokens)
+        if not access_tokens:
+            raise HTTPException(status_code=400, detail={"error": "access_tokens is required"})
+        try:
+            return await run_in_threadpool(
+                extract_link_service.start,
+                access_tokens,
+                link_type=body.link_type,
+                cdk=body.cdk,
+            )
+        except ExtractLinkError as exc:
+            raise HTTPException(status_code=400, detail={"error": str(exc)}) from exc
+
+    @router.post("/api/accounts/codex-oauth/retry")
+    async def start_account_codex_oauth_retry(
+            body: AccountCodexOAuthRetryRequest,
+            authorization: str | None = Header(default=None),
+    ):
+        require_admin(authorization)
+        try:
+            return await run_in_threadpool(
+                codex_oauth_retry_service.start,
+                body.access_tokens,
+                body.cpa_pool_id,
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail={"error": str(exc)}) from exc
+
+    @router.get("/api/accounts/codex-oauth/retry/{job_id}")
+    async def get_account_codex_oauth_retry(job_id: str, authorization: str | None = Header(default=None)):
+        require_admin(authorization)
+        job = codex_oauth_retry_service.get(job_id)
+        if job is None:
+            raise HTTPException(status_code=404, detail={"error": "job not found"})
+        return job
+
+    @router.post("/api/accounts/codex-oauth/retry/{job_id}/stop")
+    async def stop_account_codex_oauth_retry(job_id: str, authorization: str | None = Header(default=None)):
+        require_admin(authorization)
+        job = codex_oauth_retry_service.stop(job_id)
+        if job is None:
+            raise HTTPException(status_code=404, detail={"error": "job not found"})
+        return job
+
+    @router.post("/api/accounts/codex-oauth/callback")
+    async def finish_account_codex_oauth_callback(
+            body: AccountCodexOAuthCallbackRequest,
+            authorization: str | None = Header(default=None),
+    ):
+        require_admin(authorization)
+        try:
+            result = await run_in_threadpool(
+                codex_oauth_retry_service.finish_callback,
+                body.access_token,
+                body.callback_url,
+                body.cpa_pool_id,
+            )
+            return codex_management_service.save_cpa_callback_result(result, body.cpa_pool_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail={"error": str(exc)}) from exc
+        except RuntimeError as exc:
+            raise HTTPException(status_code=502, detail={"error": str(exc)}) from exc
+
+    @router.post("/api/accounts/codex-oauth/browser-callback")
+    async def capture_account_codex_oauth_callback(
+            body: AccountCodexOAuthBrowserCallbackRequest,
+            authorization: str | None = Header(default=None),
+    ):
+        require_admin(authorization)
+        try:
+            result = await run_in_threadpool(
+                codex_oauth_retry_service.capture_callback,
+                body.access_token,
+                body.provider,
+                cpa_pool_id=body.cpa_pool_id,
+                timeout_seconds=body.timeout_seconds,
+            )
+            return codex_management_service.save_cpa_callback_result(result, body.cpa_pool_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail={"error": str(exc)}) from exc
+        except RuntimeError as exc:
+            raise HTTPException(status_code=502, detail={"error": str(exc)}) from exc
 
     @router.get("/api/accounts/refresh/progress/{progress_id}")
     async def get_refresh_progress(progress_id: str, authorization: str | None = Header(default=None)):
@@ -377,13 +603,21 @@ def create_router() -> APIRouter:
         access_token = str(body.access_token or "").strip()
         if not access_token:
             raise HTTPException(status_code=400, detail={"error": "access_token is required"})
-        updates = {key: value for key, value in {"type": body.type, "status": body.status, "quota": body.quota, "proxy": body.proxy}.items() if value is not None}
+        updates = {key: value for key, value in {"type": body.type, "status": body.status, "quota": body.quota, "proxy": body.proxy, "note": body.note}.items() if value is not None}
         if not updates:
             raise HTTPException(status_code=400, detail={"error": "还没有检测到改动，请修改后再保存"})
         account = account_service.update_account(access_token, updates)
         if account is None:
             raise HTTPException(status_code=404, detail={"error": "account not found"})
         return {"item": account, "items": account_service.list_accounts()}
+
+    @router.post("/api/accounts/notes")
+    async def update_account_notes(body: AccountNoteUpdateRequest, authorization: str | None = Header(default=None)):
+        require_admin(authorization)
+        access_tokens = _unique_tokens(body.access_tokens)
+        if not access_tokens:
+            raise HTTPException(status_code=400, detail={"error": "access_tokens is required"})
+        return account_service.update_account_notes(access_tokens, body.note)
 
     @router.post("/api/accounts/oauth/start")
     async def start_oauth_login(
@@ -471,6 +705,40 @@ def create_router() -> APIRouter:
         if pool is None:
             raise HTTPException(status_code=404, detail={"error": "pool not found"})
         return {"pool_id": pool_id, "files": await run_in_threadpool(list_remote_files, pool)}
+
+    @router.get("/api/cpa/pools/{pool_id}/codex-auth-url")
+    async def cpa_pool_codex_auth_url(pool_id: str, authorization: str | None = Header(default=None)):
+        require_admin(authorization)
+        pool = cpa_config.get_pool(pool_id)
+        if pool is None:
+            raise HTTPException(status_code=404, detail={"error": "pool not found"})
+        try:
+            return await run_in_threadpool(request_codex_auth_url, pool)
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail={"error": str(exc)}) from exc
+
+    @router.post("/api/cpa/pools/{pool_id}/codex-oauth-callback")
+    async def cpa_pool_codex_oauth_callback(
+            pool_id: str,
+            body: CPACodexOAuthCallbackRequest,
+            authorization: str | None = Header(default=None),
+    ):
+        require_admin(authorization)
+        pool = cpa_config.get_pool(pool_id)
+        if pool is None:
+            raise HTTPException(status_code=404, detail={"error": "pool not found"})
+        try:
+            result = await run_in_threadpool(
+                submit_codex_oauth_callback,
+                pool,
+                body.callback_url,
+                import_account=body.import_account,
+            )
+            return codex_management_service.save_cpa_callback_result(result, pool_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail={"error": str(exc)}) from exc
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail={"error": str(exc)}) from exc
 
     @router.post("/api/cpa/pools/{pool_id}/import")
     async def cpa_pool_import(pool_id: str, body: CPAImportRequest, authorization: str | None = Header(default=None)):
