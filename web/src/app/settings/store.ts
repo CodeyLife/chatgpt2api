@@ -10,19 +10,13 @@ import {
   fetchCPAPoolFiles,
   fetchCPAPools,
   fetchBackups,
-  fetchRegisterConfig,
-  resetRegister as resetRegisterApi,
-  resetOutlookPool as resetOutlookPoolApi,
   fetchSettingsConfig,
   runBackupNow,
   syncImageStorage,
-  startRegister,
   startCPAImport,
-  stopRegister,
   testBackupConnection,
   testImageStorageConnection,
   updateCPAPool,
-  updateRegisterConfig,
   updateSettingsConfig,
   type BackupItem,
   type BackupSettings,
@@ -35,7 +29,6 @@ import {
   type ProxyRuntimeClearanceMode,
   type ProxyRuntimeEgressMode,
   type ProxyRuntimeSettings,
-  type RegisterConfig,
   type SettingsConfig,
   type ThirdPartyAppsSettings,
 } from "@/lib/api";
@@ -160,6 +153,9 @@ function normalizeExtractLink(value: unknown): ExtractLinkSettings {
 }
 
 function normalizeConfig(config: SettingsConfig): SettingsConfig {
+  const defaultThinkingEffort = ["standard", "extended", "max"].includes(String(config.default_thinking_effort))
+    ? config.default_thinking_effort as "standard" | "extended" | "max"
+    : "auto";
   const imageStorage = typeof config.image_storage === "object" && config.image_storage
     ? config.image_storage as ImageStorageSettings
     : {
@@ -192,7 +188,6 @@ function normalizeConfig(config: SettingsConfig): SettingsConfig {
       passphrase: "",
       include: {
         config: true,
-        register: true,
         cpa: true,
         sub2api: true,
         logs: true,
@@ -212,6 +207,7 @@ function normalizeConfig(config: SettingsConfig): SettingsConfig {
     image_check_before_hit_enabled: Boolean(config.image_check_before_hit_enabled !== false),
     image_remove_conversation_after_result: Boolean(config.image_remove_conversation_after_result),
     image_convert_result_to_jpg: Boolean(config.image_convert_result_to_jpg !== false),
+    image_remove_conversation_always: Boolean(config.image_remove_conversation_always),
     image_settle_secs: Number(config.image_settle_secs || 2.0),
     image_timeout_retry_secs: Number(config.image_timeout_retry_secs || 30),
     auto_remove_invalid_accounts: Boolean(config.auto_remove_invalid_accounts),
@@ -222,6 +218,8 @@ function normalizeConfig(config: SettingsConfig): SettingsConfig {
     proxy: typeof config.proxy === "string" ? config.proxy : "",
     base_url: typeof config.base_url === "string" ? config.base_url : "",
     global_system_prompt: String(config.global_system_prompt || ""),
+    default_upstream_model_name: String(config.default_upstream_model_name || "gpt-5-5"),
+    default_thinking_effort: defaultThinkingEffort,
     sensitive_words: Array.isArray(config.sensitive_words) ? config.sensitive_words : [],
     ai_review: {
       enabled: Boolean(config.ai_review?.enabled),
@@ -256,7 +254,6 @@ function normalizeConfig(config: SettingsConfig): SettingsConfig {
       passphrase: String(backup.passphrase || ""),
       include: {
         config: Boolean(backup.include?.config ?? true),
-        register: Boolean(backup.include?.register ?? true),
         cpa: Boolean(backup.include?.cpa ?? true),
         sub2api: Boolean(backup.include?.sub2api ?? true),
         logs: Boolean(backup.include?.logs ?? true),
@@ -299,10 +296,6 @@ type SettingsStore = {
   isTestingImageStorage: boolean;
   isSyncingImageStorage: boolean;
 
-  registerConfig: RegisterConfig | null;
-  isLoadingRegister: boolean;
-  isSavingRegister: boolean;
-
   pools: CPAPool[];
   isLoadingPools: boolean;
   deletingId: string | null;
@@ -340,6 +333,7 @@ type SettingsStore = {
   setImageCheckBeforeHitEnabled: (value: boolean) => void;
   setImageRemoveConversationAfterResult: (value: boolean) => void;
   setImageConvertResultToJpg: (value: boolean) => void;
+  setImageRemoveConversationAlways: (value: boolean) => void;
   setImageSettleSecs: (value: string) => void;
   setImageTimeoutRetrySecs: (value: string) => void;
   setAutoRemoveInvalidAccounts: (value: boolean) => void;
@@ -350,6 +344,8 @@ type SettingsStore = {
   setProxy: (value: string) => void;
   setBaseUrl: (value: string) => void;
   setGlobalSystemPrompt: (value: string) => void;
+  setDefaultUpstreamModelName: (value: string) => void;
+  setDefaultThinkingEffort: (value: "auto" | "standard" | "extended" | "max") => void;
   setSensitiveWordsText: (value: string) => void;
   setAIReviewField: (key: "enabled" | "base_url" | "api_key" | "model" | "prompt", value: string | boolean) => void;
   setImageStorageField: (key: keyof ImageStorageSettings, value: string | boolean) => void;
@@ -428,10 +424,6 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
   isTestingImageStorage: false,
   isSyncingImageStorage: false,
 
-  registerConfig: null,
-  isLoadingRegister: true,
-  isSavingRegister: false,
-
   pools: [],
   isLoadingPools: true,
   deletingId: null,
@@ -503,6 +495,7 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
         image_check_before_hit_enabled: Boolean(config.image_check_before_hit_enabled !== false),
         image_remove_conversation_after_result: Boolean(config.image_remove_conversation_after_result),
         image_convert_result_to_jpg: Boolean(config.image_convert_result_to_jpg !== false),
+        image_remove_conversation_always: Boolean(config.image_remove_conversation_always),
         image_settle_secs: Math.max(0.5, Number(config.image_settle_secs) || 2.0),
         image_timeout_retry_secs: Math.max(1, Number(config.image_timeout_retry_secs) || 30),
         auto_remove_invalid_accounts: Boolean(config.auto_remove_invalid_accounts),
@@ -512,6 +505,10 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
         proxy: config.proxy.trim(),
         base_url: String(config.base_url || "").trim(),
         global_system_prompt: String(config.global_system_prompt || "").trim(),
+        default_upstream_model_name: String(config.default_upstream_model_name || "gpt-5-5").trim() || "gpt-5-5",
+        default_thinking_effort: ["standard", "extended", "max"].includes(String(config.default_thinking_effort))
+          ? config.default_thinking_effort
+          : "auto",
         sensitive_words: (config.sensitive_words || []).map((item) => String(item).trim()).filter(Boolean),
         ai_review: {
           enabled: Boolean(config.ai_review?.enabled),
@@ -633,6 +630,10 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
     set((state) => state.config ? { config: { ...state.config, image_convert_result_to_jpg: value } } : {});
   },
 
+  setImageRemoveConversationAlways: (value) => {
+    set((state) => state.config ? { config: { ...state.config, image_remove_conversation_always: value } } : {});
+  },
+
   setImageSettleSecs: (value) => {
     set((state) => state.config ? { config: { ...state.config, image_settle_secs: value } } : {});
   },
@@ -697,6 +698,14 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
 
   setGlobalSystemPrompt: (value) => {
     set((state) => state.config ? { config: { ...state.config, global_system_prompt: value } } : {});
+  },
+
+  setDefaultUpstreamModelName: (value) => {
+    set((state) => state.config ? { config: { ...state.config, default_upstream_model_name: value } } : {});
+  },
+
+  setDefaultThinkingEffort: (value) => {
+    set((state) => state.config ? { config: { ...state.config, default_thinking_effort: value } } : {});
   },
 
   setSensitiveWordsText: (value) => {

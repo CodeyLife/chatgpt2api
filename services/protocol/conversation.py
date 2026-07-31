@@ -424,6 +424,33 @@ def assistant_message_text(message: dict[str, Any]) -> str:
     return ""
 
 
+def is_visible_assistant_message(message: dict[str, Any]) -> bool:
+    """Return whether an upstream assistant message is intended for the user."""
+    author = message.get("author")
+    if not isinstance(author, dict):
+        return False
+    role = str(author.get("role") or "").strip().lower()
+    if role != "assistant":
+        return False
+
+    metadata = message.get("metadata") or {}
+    if isinstance(metadata, dict) and metadata.get("is_visually_hidden_from_conversation") is True:
+        return False
+
+    # Tool commands are emitted as assistant messages addressed to recipients
+    # such as "web". Only messages addressed to everyone are user-visible.
+    recipient = str(message.get("recipient") or "").strip().lower()
+    if recipient and recipient != "all":
+        return False
+
+    # Reasoning and other internal channels must not leak into API text output.
+    channel = str(message.get("channel") or "").strip().lower()
+    if channel and channel != "final":
+        return False
+
+    return True
+
+
 def strip_history(text: str, history_text: str = "") -> str:
     text = str(text or "")
     history_text = str(history_text or "")
@@ -453,8 +480,7 @@ def sanitize_output_text(text: str) -> str:
                 return value
         return ""
 
-    def replace_annotation(match: re.Match[str]) -> str:
-        payload = match.group(1)
+    def annotation_text(payload: str) -> str:
         parts = [part.strip() for part in payload.split("\ue202")]
         kind = (parts[0] if parts else "").lower()
         data = parts[1:]
@@ -468,12 +494,20 @@ def sanitize_output_text(text: str) -> str:
             return readable_annotation_part(data)
         return readable_annotation_part(data)
 
+    def replace_annotation(match: re.Match[str]) -> str:
+        return annotation_text(match.group(1))
+
+    def replace_annotation_before_punctuation(match: re.Match[str]) -> str:
+        leading_space = match.group(1)
+        replacement = annotation_text(match.group(2))
+        return f"{leading_space}{replacement}" if replacement else ""
+
     # ChatGPT web sometimes returns rich annotation markers using private-use
     # characters. API clients cannot render those. Preserve readable labels
     # from entity/link annotations, while removing internal citation pointers.
+    text = re.sub(r"(\s*)\ue200([^\ue201]*)\ue201(?=[.,;:!?])", replace_annotation_before_punctuation, text)
     text = re.sub(r"\ue200([^\ue201]*)\ue201", replace_annotation, text)
     text = re.sub(r"\ue200[^\ue201]*$", "", text)
-    text = re.sub(r"\s+([.,;:!?])", r"\1", text)
     return text
 
 
@@ -482,10 +516,7 @@ def assistant_raw_text(event: dict[str, Any], current_text: str = "", history_te
         if not isinstance(candidate, dict):
             continue
         message = candidate.get("message")
-        if not isinstance(message, dict):
-            continue
-        role = str((message.get("author") or {}).get("role") or "").strip().lower()
-        if role != "assistant":
+        if not isinstance(message, dict) or not is_visible_assistant_message(message):
             continue
         text = assistant_message_text(message)
         if text:
@@ -502,7 +533,7 @@ def event_assistant_text(event: dict[str, Any], history_text: str = "") -> str:
         if not isinstance(candidate, dict):
             continue
         message = candidate.get("message")
-        if isinstance(message, dict) and (message.get("author") or {}).get("role") == "assistant":
+        if isinstance(message, dict) and is_visible_assistant_message(message):
             return strip_history(assistant_message_text(message), history_text)
     return ""
 
@@ -768,8 +799,8 @@ def _deadline_sleep(seconds: float, deadline: float | None) -> None:
         time.sleep(sleep_for)
 
 
-def text_backend() -> OpenAIBackendAPI:
-    return OpenAIBackendAPI(access_token=account_service.get_text_access_token())
+def text_backend(model: str = "auto") -> OpenAIBackendAPI:
+    return OpenAIBackendAPI(access_token=account_service.get_text_access_token(model=model))
 
 
 def stream_text_deltas(backend: OpenAIBackendAPI, request: ConversationRequest) -> Iterator[str]:
@@ -809,7 +840,10 @@ def stream_text_deltas(backend: OpenAIBackendAPI, request: ConversationRequest) 
                             token = refreshed_token
                         else:
                             account_service.remove_invalid_token(token, "text_stream")
-                            token = account_service.get_text_access_token(attempted_tokens)
+                            token = account_service.get_text_access_token(
+                                excluded_tokens=set(attempted_tokens),
+                                model=request.model,
+                            )
                         if token:
                             continue
                     raise
@@ -819,7 +853,9 @@ def stream_text_deltas(backend: OpenAIBackendAPI, request: ConversationRequest) 
     finally:
         # 接管外部传入 backend 的资源释放：所有调用方（text_backend()、MessageRequest.backend）
         # 创建后不再持有引用，由本函数统一 close
-        backend.close()
+        close = getattr(backend, "close", None)
+        if callable(close):
+            close()
 
 
 def collect_text(backend: OpenAIBackendAPI, request: ConversationRequest) -> str:
@@ -875,8 +911,15 @@ def _get_detailed_error_from_tasks(
         return ""
 
 
-def _remove_image_conversation_later(backend: OpenAIBackendAPI, conversation_id: str) -> None:
-    if not config.image_remove_conversation_after_result or not conversation_id:
+def _remove_image_conversation_later(
+        backend: OpenAIBackendAPI,
+        conversation_id: str,
+        *,
+        success: bool,
+) -> None:
+    if not conversation_id:
+        return
+    if not (config.image_remove_conversation_always or (success and config.image_remove_conversation_after_result)):
         return
 
     def _run() -> None:
@@ -922,6 +965,7 @@ def stream_image_outputs(
                 total=total,
                 text=str(event.get("delta") or ""),
                 upstream_event_type="conversation.delta",
+                conversation_id=str(event.get("conversation_id") or ""),
             )
             continue
         if event.get("type") == "conversation.event":
@@ -933,6 +977,7 @@ def stream_image_outputs(
                 index=index,
                 total=total,
                 upstream_event_type=raw_type,
+                conversation_id=str(event.get("conversation_id") or ""),
             )
 
     conversation_id = str(last.get("conversation_id") or "")
@@ -1074,7 +1119,6 @@ def stream_image_outputs(
             int(time.time()),
         )["data"]
         if data:
-            _remove_image_conversation_later(backend, conversation_id)
             yield ImageOutput(kind="result", model=request.model, index=index, total=total, data=data, conversation_id=conversation_id)
         return
 
@@ -1175,7 +1219,6 @@ def stream_image_outputs(
                         int(time.time()),
                     )["data"]
                     if data:
-                        _remove_image_conversation_later(backend, conversation_id)
                         yield ImageOutput(kind="result", model=request.model, index=index, total=total, data=data, conversation_id=conversation_id)
                         return
         elif is_text_reply:
@@ -1291,7 +1334,6 @@ def stream_image_outputs(
                     int(time.time()),
                 )["data"]
                 if data:
-                    _remove_image_conversation_later(backend, conversation_id)
                     yield ImageOutput(kind="result", model=request.model, index=index, total=total, data=data, conversation_id=conversation_id)
                     return
         
@@ -1429,22 +1471,38 @@ def _generate_single_image(
             # 同账号重试时复用已上传的参考图 references（仅非 codex 模型路径）
             preloaded_refs = None if is_codex_image_model(request.model) else token_references_cache.get(token)
             outputs: list[ImageOutput] = []
-            for output in stream_fn(backend, request, index, total, total_deadline, preloaded_references=preloaded_refs):
-                if account_email and not output.account_email:
-                    output.account_email = account_email
-                if output.kind == "message" and request.message_as_error:
-                    raise ImageGenerationError(
-                        output.text or "Image generation was rejected by upstream policy.",
-                        status_code=400,
-                        error_type="invalid_request_error",
-                        code="content_policy_violation",
-                        account_email=account_email,
-                        conversation_id=output.conversation_id,
-                    )
-                emitted_for_token = True
-                returned_message = output.kind == "message"
-                returned_result = returned_result or output.kind == "result"
-                outputs.append(output)
+            last_conversation_id = ""
+            try:
+                for output in stream_fn(
+                    backend,
+                    request,
+                    index,
+                    total,
+                    total_deadline,
+                    preloaded_references=preloaded_refs,
+                ):
+                    last_conversation_id = output.conversation_id or last_conversation_id
+                    if account_email and not output.account_email:
+                        output.account_email = account_email
+                    if output.kind == "message" and request.message_as_error:
+                        raise ImageGenerationError(
+                            output.text or "Image generation was rejected by upstream policy.",
+                            status_code=400,
+                            error_type="invalid_request_error",
+                            code="content_policy_violation",
+                            account_email=account_email,
+                            conversation_id=output.conversation_id,
+                        )
+                    emitted_for_token = True
+                    returned_message = output.kind == "message"
+                    returned_result = returned_result or output.kind == "result"
+                    outputs.append(output)
+            except Exception as exc:
+                # 异常路径（内容政策拒绝、轮询超时等）会话 ID 只挂在异常上
+                last_conversation_id = last_conversation_id or str(getattr(exc, "conversation_id", "") or "")
+                raise
+            finally:
+                _remove_image_conversation_later(backend, last_conversation_id, success=returned_result)
             if returned_message:
                 account_service.mark_image_result(token, False)
                 return outputs

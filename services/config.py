@@ -18,7 +18,6 @@ BACKUP_STATE_FILE = DATA_DIR / "backup_state.json"
 
 DEFAULT_BACKUP_INCLUDE = {
     "config": True,
-    "register": True,
     "cpa": True,
     "sub2api": True,
     "logs": True,
@@ -502,6 +501,11 @@ class ConfigStore:
         return _normalize_bool(self.data.get("image_convert_result_to_jpg"), True)
 
     @property
+    def image_remove_conversation_always(self) -> bool:
+        """无论是否出图，画图请求结束后都异步隐藏 ChatGPT 本地对话记录。"""
+        return _normalize_bool(self.data.get("image_remove_conversation_always"), False)
+
+    @property
     def image_settle_secs(self) -> float:
         """二次确认等待时间（秒）。"""
         try:
@@ -577,6 +581,15 @@ class ConfigStore:
         return str(self.data.get("global_system_prompt") or "").strip()
 
     @property
+    def default_upstream_model_name(self) -> str:
+        return str(self.data.get("default_upstream_model_name") or "gpt-5-5").strip()
+
+    @property
+    def default_thinking_effort(self) -> str:
+        value = str(self.data.get("default_thinking_effort") or "auto").strip().lower()
+        return value if value in {"auto", "standard", "extended", "max"} else "auto"
+
+    @property
     def images_dir(self) -> Path:
         path = DATA_DIR / "images"
         path.mkdir(parents=True, exist_ok=True)
@@ -632,6 +645,7 @@ class ConfigStore:
         data["image_parallel_generation_max_workers"] = self.image_parallel_generation_max_workers
         data["image_remove_conversation_after_result"] = self.image_remove_conversation_after_result
         data["image_convert_result_to_jpg"] = self.image_convert_result_to_jpg
+        data["image_remove_conversation_always"] = self.image_remove_conversation_always
         data["auto_remove_invalid_accounts"] = self.auto_remove_invalid_accounts
         data["auto_remove_rate_limited_accounts"] = self.auto_remove_rate_limited_accounts
         data["auto_relogin_after_refresh"] = self.auto_relogin_after_refresh
@@ -640,6 +654,8 @@ class ConfigStore:
         data["sensitive_words"] = self.sensitive_words
         data["ai_review"] = self.ai_review
         data["global_system_prompt"] = self.global_system_prompt
+        data["default_upstream_model_name"] = self.default_upstream_model_name
+        data["default_thinking_effort"] = self.default_thinking_effort
         data["backup"] = self.get_backup_settings()
         data["image_storage"] = self.get_image_storage_settings()
         data["chat_completion_cache"] = self.get_chat_completion_cache_settings()
@@ -709,6 +725,11 @@ class ConfigStore:
             next_data["image_convert_result_to_jpg"] = _normalize_bool(
                 next_data.get("image_convert_result_to_jpg"),
                 True,
+            )
+        if "image_remove_conversation_always" in next_data:
+            next_data["image_remove_conversation_always"] = _normalize_bool(
+                next_data.get("image_remove_conversation_always"),
+                False,
             )
         if "proxy_runtime" in next_data:
             incoming_runtime = next_data.get("proxy_runtime")

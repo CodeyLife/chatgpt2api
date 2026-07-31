@@ -21,8 +21,7 @@ from urllib.parse import parse_qs, urlencode, urlparse
 
 from curl_cffi import requests
 
-from services.proxy_service import proxy_settings
-from services.register.openai_register import (
+from services.openai_oauth import (
     auth_base,
     platform_auth0_client,
     platform_base,
@@ -30,6 +29,7 @@ from services.register.openai_register import (
     platform_oauth_client_id,
     platform_oauth_redirect_uri,
 )
+from services.proxy_service import proxy_settings
 from utils.fingerprint import DEFAULT_PROFILE, build_common_headers
 
 

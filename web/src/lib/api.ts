@@ -22,7 +22,6 @@ export type Account = {
   source_type?: string | null;
   status: AccountStatus;
   quota: number;
-  image_quota_unknown?: boolean;
   email?: string | null;
   user_id?: string | null;
   note?: string | null;
@@ -255,6 +254,8 @@ export type SettingsConfig = {
   proxy: string;
   base_url?: string;
   global_system_prompt?: string;
+  default_upstream_model_name?: string;
+  default_thinking_effort?: "auto" | "standard" | "extended" | "max";
   sensitive_words?: string[];
   ai_review?: {
     enabled?: boolean;
@@ -272,6 +273,7 @@ export type SettingsConfig = {
   image_check_before_hit_enabled?: boolean;
   image_remove_conversation_after_result?: boolean;
   image_convert_result_to_jpg?: boolean;
+  image_remove_conversation_always?: boolean;
   image_settle_secs?: number | string;
   image_timeout_retry_secs?: number | string;
   auto_remove_invalid_accounts?: boolean;
@@ -290,7 +292,6 @@ export type SettingsConfig = {
 
 export type BackupInclude = {
   config: boolean;
-  register: boolean;
   cpa: boolean;
   sub2api: boolean;
   logs: boolean;
