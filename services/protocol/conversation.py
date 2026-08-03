@@ -24,6 +24,7 @@ from services.openai_backend_api import (
 )
 from utils.helper import (
     IMAGE_MODELS,
+    UpstreamHTTPError,
     extract_image_from_message_content,
     is_codex_image_model,
     is_supported_image_model,
@@ -97,6 +98,14 @@ def is_tls_connection_error(message: str) -> bool:
         or "remote disconnected" in text
         or "connection reset by peer" in text
     )
+
+
+def is_upstream_403_error(exc: Exception) -> bool:
+    """检测上游 HTTP 403 错误（bootstrap 或其他接口被 Cloudflare/OpenAI WAF 拦截）。
+
+    这类错误表示当前 session 已被封锁，换一个账号（session）通常能恢复。
+    """
+    return isinstance(exc, UpstreamHTTPError) and exc.status_code == 403
 
 
 def is_connection_timeout_error(message: str) -> bool:
@@ -844,6 +853,16 @@ def stream_text_deltas(backend: OpenAIBackendAPI, request: ConversationRequest) 
                                 excluded_tokens=set(attempted_tokens),
                                 model=request.model,
                             )
+                        if token:
+                            continue
+                    elif token and not emitted and is_upstream_403_error(exc):
+                        # 403 错误：session/网络被 Cloudflare/OpenAI WAF 封锁
+                        # 记录失败计数，连续多次后自动标记为异常
+                        account_service.mark_text_failed(token, event="upstream_403")
+                        token = account_service.get_text_access_token(
+                            excluded_tokens=set(attempted_tokens),
+                            model=request.model,
+                        )
                         if token:
                             continue
                     raise

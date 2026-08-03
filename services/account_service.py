@@ -1172,6 +1172,34 @@ class AccountService:
                 return
             next_item = dict(current)
             next_item["last_used_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            next_item["fail"] = 0  # 成功后重置失败计数
+            account = self._normalize_account(next_item)
+            if account is None:
+                return
+            self._accounts[access_token] = account
+            self._save_accounts()
+
+    def mark_text_failed(self, access_token: str, event: str = "text_stream") -> None:
+        """记录文本对话失败，累加 fail 计数。
+
+        连续失败超过 MAX_TEXT_FAIL_COUNT 后自动标记为"异常"，
+        防止一直重试已失效的账号。
+        """
+        if not access_token:
+            return
+        with self._lock:
+            access_token = self._resolve_access_token_locked(access_token)
+            current = self._accounts.get(access_token)
+            if current is None:
+                return
+            next_item = dict(current)
+            next_item["last_used_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            next_item["fail"] = int(next_item.get("fail") or 0) + 1
+            if next_item["fail"] >= 5:
+                next_item["status"] = "异常"
+                next_item["quota"] = 0
+                self._log_account("文本对话连续失败，自动标记为异常",
+                                  {"source": event, "token": anonymize_token(access_token)})
             account = self._normalize_account(next_item)
             if account is None:
                 return
