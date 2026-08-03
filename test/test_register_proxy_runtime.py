@@ -1023,12 +1023,12 @@ class RegisterProxyRuntimeTests(unittest.TestCase):
     def test_new_registration_profile_matches_successful_browser_sample(self):
         profile = fingerprint.random_profile()
 
-        self.assertEqual(profile.name, "chrome150_win")
-        self.assertIn("Chrome/150.0.0.0", profile.user_agent)
+        self.assertEqual(profile.name, "chrome152_win")
+        self.assertIn("Chrome/152.0.0.0", profile.user_agent)
         self.assertEqual(profile.accept_language, "zh-CN,zh;q=0.9")
         self.assertEqual(
             profile.sec_ch_ua,
-            '"Not;A=Brand";v="8", "Chromium";v="150", "Google Chrome";v="150"',
+            '"Not;A=Brand";v="8", "Chromium";v="152", "Google Chrome";v="152"',
         )
 
 if __name__ == "__main__":

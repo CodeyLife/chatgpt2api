@@ -122,7 +122,7 @@ class ChatGPTPlanServiceTests(unittest.TestCase):
         result = chatgpt_plan_service.check_account_plan(
             token,
             session=session,
-            account={"email": "user@example.com", "device_id": "device-1", "browser_profile": "chrome150_win"},
+            account={"email": "user@example.com", "device_id": "device-1", "browser_profile": "chrome152_win"},
         )
 
         self.assertTrue(result["ok"])

@@ -36,7 +36,7 @@ class AccountService:
     _OAUTH_USER_AGENT = (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
         "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/145.0.0.0 Safari/537.36"
+        "Chrome/152.0.0.0 Safari/537.36"
     )
 
     # 刷新进度追踪
