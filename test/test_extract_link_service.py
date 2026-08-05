@@ -13,11 +13,8 @@ class FakeAccountService:
                 "status": "正常",
                 "type": "free",
                 "quota": 0,
-                "chatgpt_plan_check": {
-                    "status": "success",
-                    "current_plan_type": "free",
-                    "plus_trial_eligible": True,
-                },
+                "current_plan_type": "free",
+                "plus_trial_eligible": True,
             }
         }
         self.updates = []
@@ -96,7 +93,7 @@ class ExtractLinkServiceTests(unittest.TestCase):
 
     def test_start_skips_accounts_without_plus_trial_eligibility(self):
         fake_accounts = FakeAccountService()
-        fake_accounts.accounts["token-1"]["chatgpt_plan_check"]["plus_trial_eligible"] = False
+        fake_accounts.accounts["token-1"]["plus_trial_eligible"] = False
         service = ExtractLinkService()
 
         with patch("services.extract_link_service.account_service", fake_accounts), patch(

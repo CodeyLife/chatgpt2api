@@ -24,12 +24,9 @@ from api.support import (
     sanitize_sub2api_servers,
 )
 from services.account_service import account_service
-from services.account_plan_check_service import account_plan_check_service
-from services.chatgpt_plan_service import chatgpt_plan_service
 from services.codex_agent_identity_service import CodexAgentIdentityError, codex_agent_identity_service
 from services.codex_management_service import codex_management_service
 from services.codex_oauth_service import CodexOAuthError, codex_oauth_service
-from services.codex_oauth_retry_service import codex_oauth_retry_service
 from services.cpa_service import (
     cpa_config,
     cpa_import_service,
@@ -69,35 +66,6 @@ class AccountDeleteRequest(BaseModel):
 
 class AccountRefreshRequest(BaseModel):
     access_tokens: list[str] = Field(default_factory=list)
-
-
-class AccountCodexOAuthRetryRequest(BaseModel):
-    access_tokens: list[str] = Field(default_factory=list)
-    cpa_pool_id: str = ""
-
-
-class AccountCodexOAuthCallbackRequest(BaseModel):
-    access_token: str = ""
-    callback_url: str = ""
-    cpa_pool_id: str = ""
-
-
-class AccountCodexOAuthBrowserCallbackRequest(BaseModel):
-    access_token: str = ""
-    provider: str = ""
-    cpa_pool_id: str = ""
-    timeout_seconds: int | None = None
-
-
-class AccountPlanCheckRequest(BaseModel):
-    access_token: str = ""
-    proxy: str = ""
-
-
-class AccountPlanCheckBatchRequest(BaseModel):
-    access_tokens: list[str] = Field(default_factory=list)
-    proxy: str = ""
-    trigger: str = "manual"
 
 
 class AccountExtractLinkRequest(BaseModel):
@@ -404,37 +372,6 @@ def create_router() -> APIRouter:
 
         return {"progress_id": progress_id}
 
-    @router.post("/api/accounts/plan-check")
-    async def check_account_plan(body: AccountPlanCheckRequest, authorization: str | None = Header(default=None)):
-        require_admin(authorization)
-        access_token = str(body.access_token or "").strip()
-        if not access_token:
-            raise HTTPException(status_code=400, detail={"error": "access_token is required"})
-        return await run_in_threadpool(
-            chatgpt_plan_service.check_account_plan,
-            access_token,
-            proxy=body.proxy,
-            account=account_service.get_account(access_token),
-        )
-
-    @router.get("/api/accounts/plan-check-status")
-    async def get_account_plan_check_status(limit: int = 5000, authorization: str | None = Header(default=None)):
-        require_admin(authorization)
-        snapshot = account_plan_check_service.status_snapshot(limit=limit)
-        snapshot["queue"] = account_plan_check_service.queue_settings()
-        return snapshot
-
-    @router.post("/api/accounts/plan-check/batch")
-    async def start_account_plan_check(body: AccountPlanCheckBatchRequest, authorization: str | None = Header(default=None)):
-        require_admin(authorization)
-        access_tokens = _unique_tokens(body.access_tokens)
-        if not access_tokens:
-            raise HTTPException(status_code=400, detail={"error": "access_tokens is required"})
-        try:
-            return account_plan_check_service.start(access_tokens, proxy=body.proxy, trigger=body.trigger)
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail={"error": str(exc)}) from exc
-
     @router.get("/api/accounts/extract-link")
     async def get_extract_link_settings(authorization: str | None = Header(default=None)):
         require_admin(authorization)
@@ -464,108 +401,10 @@ def create_router() -> APIRouter:
         except ExtractLinkError as exc:
             raise HTTPException(status_code=400, detail={"error": str(exc)}) from exc
 
-    @router.post("/api/accounts/codex-oauth/retry")
-    async def start_account_codex_oauth_retry(
-            body: AccountCodexOAuthRetryRequest,
-            authorization: str | None = Header(default=None),
-    ):
-        require_admin(authorization)
-        try:
-            return await run_in_threadpool(
-                codex_oauth_retry_service.start,
-                body.access_tokens,
-                body.cpa_pool_id,
-            )
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail={"error": str(exc)}) from exc
-
-    @router.get("/api/accounts/codex-oauth/retry/{job_id}")
-    async def get_account_codex_oauth_retry(job_id: str, authorization: str | None = Header(default=None)):
-        require_admin(authorization)
-        job = codex_oauth_retry_service.get(job_id)
-        if job is None:
-            raise HTTPException(status_code=404, detail={"error": "job not found"})
-        return job
-
-    @router.post("/api/accounts/codex-oauth/retry/{job_id}/stop")
-    async def stop_account_codex_oauth_retry(job_id: str, authorization: str | None = Header(default=None)):
-        require_admin(authorization)
-        job = codex_oauth_retry_service.stop(job_id)
-        if job is None:
-            raise HTTPException(status_code=404, detail={"error": "job not found"})
-        return job
-
-    @router.post("/api/accounts/codex-oauth/callback")
-    async def finish_account_codex_oauth_callback(
-            body: AccountCodexOAuthCallbackRequest,
-            authorization: str | None = Header(default=None),
-    ):
-        require_admin(authorization)
-        try:
-            result = await run_in_threadpool(
-                codex_oauth_retry_service.finish_callback,
-                body.access_token,
-                body.callback_url,
-                body.cpa_pool_id,
-            )
-            return codex_management_service.save_cpa_callback_result(result, body.cpa_pool_id)
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail={"error": str(exc)}) from exc
-        except RuntimeError as exc:
-            raise HTTPException(status_code=502, detail={"error": str(exc)}) from exc
-
-    @router.post("/api/accounts/codex-oauth/browser-callback")
-    async def capture_account_codex_oauth_callback(
-            body: AccountCodexOAuthBrowserCallbackRequest,
-            authorization: str | None = Header(default=None),
-    ):
-        require_admin(authorization)
-        try:
-            result = await run_in_threadpool(
-                codex_oauth_retry_service.capture_callback,
-                body.access_token,
-                body.provider,
-                cpa_pool_id=body.cpa_pool_id,
-                timeout_seconds=body.timeout_seconds,
-            )
-            return codex_management_service.save_cpa_callback_result(result, body.cpa_pool_id)
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail={"error": str(exc)}) from exc
-        except RuntimeError as exc:
-            raise HTTPException(status_code=502, detail={"error": str(exc)}) from exc
-
     @router.get("/api/accounts/refresh/progress/{progress_id}")
     async def get_refresh_progress(progress_id: str, authorization: str | None = Header(default=None)):
         require_admin(authorization)
         progress = account_service.get_refresh_progress(progress_id)
-        if progress is None:
-            raise HTTPException(status_code=404, detail={"error": "progress not found"})
-        return progress
-
-    @router.post("/api/accounts/re-login")
-    async def re_login_accounts(body: AccountRefreshRequest, authorization: str | None = Header(default=None)):
-        """对选中账号执行密码重新登录流程（密码登录→验证码登录→刷新token）。"""
-        require_admin(authorization)
-        access_tokens = [str(token or "").strip() for token in body.access_tokens if str(token or "").strip()]
-        if not access_tokens:
-            raise HTTPException(status_code=400, detail={"error": "access_tokens is required"})
-
-        progress_id = str(uuid.uuid4())
-
-        async def _do_relogin():
-            try:
-                await run_in_threadpool(account_service.re_login_accounts, access_tokens, progress_id)
-            except Exception as e:
-                account_service.finish_relogin_progress(progress_id, error=str(e))
-
-        asyncio.create_task(_do_relogin())
-
-        return {"progress_id": progress_id}
-
-    @router.get("/api/accounts/re-login/progress/{progress_id}")
-    async def get_relogin_progress(progress_id: str, authorization: str | None = Header(default=None)):
-        require_admin(authorization)
-        progress = account_service.get_relogin_progress(progress_id)
         if progress is None:
             raise HTTPException(status_code=404, detail={"error": "progress not found"})
         return progress

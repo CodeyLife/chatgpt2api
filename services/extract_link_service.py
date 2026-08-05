@@ -44,15 +44,13 @@ def _normalize_link_type(value: object, default: str = "pix") -> str:
 
 def _is_extract_eligible(account: dict[str, Any] | None) -> bool:
     account = account if isinstance(account, dict) else {}
-    check = account.get("chatgpt_plan_check") if isinstance(account.get("chatgpt_plan_check"), dict) else {}
     plan = str(
-        check.get("current_plan_type")
-        or account.get("current_plan_type")
+        account.get("current_plan_type")
         or account.get("plan_type")
         or account.get("type")
         or ""
     ).strip().lower()
-    plus_trial_eligible = bool(check.get("plus_trial_eligible") or account.get("plus_trial_eligible"))
+    plus_trial_eligible = bool(account.get("plus_trial_eligible"))
     return plan == "free" and plus_trial_eligible
 
 

@@ -857,7 +857,7 @@ def stream_text_deltas(backend: OpenAIBackendAPI, request: ConversationRequest) 
                             continue
                     elif token and not emitted and is_upstream_403_error(exc):
                         # 403 错误：session/网络被 Cloudflare/OpenAI WAF 封锁
-                        # 记录失败计数，连续多次后自动标记为异常
+                        # 仅记录失败计数用于追踪，不标记账号（403 通常是 IP 级封锁）
                         account_service.mark_text_failed(token, event="upstream_403")
                         token = account_service.get_text_access_token(
                             excluded_tokens=set(attempted_tokens),

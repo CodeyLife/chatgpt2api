@@ -29,19 +29,6 @@ export type Account = {
   twofa_enabled?: boolean;
   totp_secret?: string | null;
   recovery_codes?: string[];
-  chatgpt_plan_check?: {
-    ok?: boolean;
-    status?: "queued" | "running" | "success" | "failed" | string;
-    job_id?: string;
-    current_plan_type?: string;
-    plus_trial_eligible?: boolean;
-    error?: string;
-    checked_at?: string;
-    queued_at?: string;
-    started_at?: string;
-    finished_at?: string;
-    [key: string]: unknown;
-  } | null;
   limits_progress?: Array<{
     feature_name?: string;
     remaining?: number;
@@ -144,7 +131,6 @@ type AccountMutationResponse = {
   skipped?: number;
   removed?: number;
   refreshed?: number;
-  relogined?: number;
   errors?: Array<{ access_token: string; error: string }>;
 };
 
@@ -160,7 +146,6 @@ export type CodexAgentIdentityResponse = AccountMutationResponse & {
 export type AccountRefreshResponse = {
   items: Account[];
   refreshed: number;
-  relogined?: number;
   errors: Array<{ access_token: string; error: string }>;
 };
 
@@ -278,7 +263,6 @@ export type SettingsConfig = {
   image_timeout_retry_secs?: number | string;
   auto_remove_invalid_accounts?: boolean;
   auto_remove_rate_limited_accounts?: boolean;
-  auto_relogin_after_refresh?: boolean;
   account_management_log_enabled?: boolean;
   log_levels?: string[];
   image_storage?: ImageStorageSettings;
@@ -598,27 +582,7 @@ export async function refreshAccounts(accessTokens: string[]) {
   });
 }
 
-export async function checkAccountPlan(accessToken: string, proxy = "") {
-  return httpRequest<Record<string, unknown>>("/api/accounts/plan-check", {
-    method: "POST",
-    body: { access_token: accessToken, proxy },
-  });
-}
 
-export type AccountPlanCheckStartResponse = {
-  accepted: number;
-  skipped: number;
-  jobs: Array<{ access_token: string; job_id: string; email?: string }>;
-  skipped_items: Array<{ access_token: string; reason: string }>;
-  items: Account[];
-};
-
-export async function startAccountPlanCheck(accessTokens: string[], proxy = "") {
-  return httpRequest<AccountPlanCheckStartResponse>("/api/accounts/plan-check/batch", {
-    method: "POST",
-    body: { access_tokens: accessTokens, proxy },
-  });
-}
 
 export type ExtractLinkStartResponse = {
   accepted: number;
@@ -646,96 +610,13 @@ export async function startExtractLink(accessTokens: string[], linkType = "", cd
   });
 }
 
-export type CodexOAuthRetryJob = {
-  job_id: string;
-  status: "queued" | "running" | "stopping" | "done" | "failed" | "stopped" | string;
-  pool_id: string;
-  created_at: string;
-  updated_at: string;
-  total: number;
-  completed: number;
-  succeeded: number;
-  pending_callback?: number;
-  failed: number;
-  stopped: number;
-  results: Array<{
-    token: string;
-    email?: string | null;
-    status: string;
-    auth_url?: string;
-    state?: string;
-    error?: string;
-  }>;
-};
 
-export async function startAccountCodexOAuthRetry(accessTokens: string[], cpaPoolId: string) {
-  return httpRequest<CodexOAuthRetryJob>("/api/accounts/codex-oauth/retry", {
-    method: "POST",
-    body: { access_tokens: accessTokens, cpa_pool_id: cpaPoolId },
-  });
-}
-
-export async function fetchAccountCodexOAuthRetry(jobId: string) {
-  return httpRequest<CodexOAuthRetryJob>(`/api/accounts/codex-oauth/retry/${jobId}`);
-}
-
-export async function stopAccountCodexOAuthRetry(jobId: string) {
-  return httpRequest<CodexOAuthRetryJob>(`/api/accounts/codex-oauth/retry/${jobId}/stop`, { method: "POST" });
-}
-
-export type AccountCodexOAuthCallbackResponse = {
-  ok: boolean;
-  access_token: string;
-  pool_id: string;
-  auth_json?: AccountImportPayload | null;
-  import_result?: AccountMutationResponse | null;
-  items?: Account[] | null;
-  browser?: {
-    provider?: string;
-    session_id?: string;
-    profile_id?: string;
-    proxy_country_code?: string;
-    [key: string]: unknown;
-  } | null;
-};
-
-export async function submitAccountCodexOAuthCallback(input: {
-  access_token: string;
-  callback_url: string;
-  cpa_pool_id?: string;
-}) {
-  return httpRequest<AccountCodexOAuthCallbackResponse>("/api/accounts/codex-oauth/callback", {
-    method: "POST",
-    body: input,
-  });
-}
-
-export async function captureAccountCodexOAuthCallback(input: {
-  access_token: string;
-  provider: string;
-  cpa_pool_id?: string;
-  timeout_seconds?: number;
-}) {
-  return httpRequest<AccountCodexOAuthCallbackResponse>("/api/accounts/codex-oauth/browser-callback", {
-    method: "POST",
-    body: input,
-  });
-}
 
 export async function fetchRefreshProgress(progressId: string) {
   return httpRequest<RefreshProgressResponse>(`/api/accounts/refresh/progress/${progressId}`);
 }
 
-export async function reLoginAccounts(accessTokens: string[]) {
-  return httpRequest<{ progress_id: string }>("/api/accounts/re-login", {
-    method: "POST",
-    body: { access_tokens: accessTokens },
-  });
-}
 
-export async function fetchReLoginProgress(progressId: string) {
-  return httpRequest<RefreshProgressResponse>(`/api/accounts/re-login/progress/${progressId}`);
-}
 
 export async function updateAccount(
   accessToken: string,
@@ -1251,7 +1132,6 @@ export type CodexCredentialItem = {
   size?: number;
   codex_status?: string;
   codex_error?: string;
-  retrying?: boolean;
   account_present?: boolean;
 };
 
@@ -1259,18 +1139,11 @@ export type CodexCredentialSummary = {
   total: number;
   exported: number;
   unexported: number;
-  retrying: number;
 };
 
 export type CodexCredentialListResponse = {
   summary: CodexCredentialSummary;
   accounts: CodexCredentialItem[];
-};
-
-export type CodexRetryLogResponse = {
-  ok: boolean;
-  log: string;
-  running: boolean;
 };
 
 function downloadBlob(blob: Blob, filename: string) {
@@ -1300,44 +1173,6 @@ function filenameFromDisposition(disposition: unknown, fallback: string) {
 
 export async function fetchCodexCredentials() {
   return httpRequest<CodexCredentialListResponse>("/api/codex");
-}
-
-export async function fetchCodexRetryLog(email: string) {
-  return httpRequest<CodexRetryLogResponse>(`/api/codex/retry-log?email=${encodeURIComponent(email)}`);
-}
-
-export async function retryCodexByEmail(email: string, cpaPoolId = "", provider = "") {
-  return httpRequest<{ ok: boolean; message?: string }>("/api/codex/retry", {
-    method: "POST",
-    body: { email, cpa_pool_id: cpaPoolId, provider },
-  });
-}
-
-export async function retryCodexBulk(emails: string[], workers = 1, cpaPoolId = "", provider = "") {
-  return httpRequest<{
-    ok: boolean;
-    message?: string;
-    started_count?: number;
-    skipped?: Array<{ email: string; reason: string }>;
-    batch_id?: string;
-  }>("/api/codex/retry-bulk", {
-    method: "POST",
-    body: { emails, workers, cpa_pool_id: cpaPoolId, provider },
-  });
-}
-
-export async function stopCodexRetry(email: string) {
-  return httpRequest<{ ok: boolean; message?: string; running?: boolean }>("/api/codex/stop", {
-    method: "POST",
-    body: { email },
-  });
-}
-
-export async function resetCodexRetrying(email: string, status: "failed" | "skipped" | "empty" = "failed") {
-  return httpRequest<{ ok: boolean; message?: string; status?: string }>("/api/codex/reset-retrying", {
-    method: "POST",
-    body: { email, status },
-  });
 }
 
 export async function resetCodexExport(filename: string) {

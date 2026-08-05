@@ -1,12 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Download, FileText, RefreshCcw, RotateCcw, Search, Square, Trash2 } from "lucide-react";
+import { Download, RefreshCcw, RotateCcw, Search, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import {
@@ -14,12 +13,7 @@ import {
   downloadCodexBulk,
   downloadCodexCredential,
   fetchCodexCredentials,
-  fetchCodexRetryLog,
   resetCodexExport,
-  resetCodexRetrying,
-  retryCodexBulk,
-  retryCodexByEmail,
-  stopCodexRetry,
   type CodexCredentialItem,
   type CodexCredentialSummary,
 } from "@/lib/api";
@@ -30,7 +24,6 @@ const emptySummary: CodexCredentialSummary = {
   total: 0,
   exported: 0,
   unexported: 0,
-  retrying: 0,
 };
 
 function formatTime(value?: string) {
@@ -48,9 +41,6 @@ function statusBadgeVariant(status?: string): "success" | "warning" | "danger" |
   const value = String(status || "").toLowerCase();
   if (value === "success") {
     return "success";
-  }
-  if (value === "retrying" || value === "pending_callback") {
-    return "warning";
   }
   if (value === "failed" || value === "stopped") {
     return "danger";
@@ -70,13 +60,8 @@ export default function CodexPage() {
   const [summary, setSummary] = useState<CodexCredentialSummary>(emptySummary);
   const [selected, setSelected] = useState<string[]>([]);
   const [query, setQuery] = useState("");
-  const [cpaPoolId, setCpaPoolId] = useState("");
-  const [workers, setWorkers] = useState(1);
   const [isLoading, setIsLoading] = useState(true);
   const [busy, setBusy] = useState<BusyState>({});
-  const [logEmail, setLogEmail] = useState("");
-  const [logText, setLogText] = useState("");
-  const [logRunning, setLogRunning] = useState(false);
 
   const load = async (silent = false) => {
     if (!silent) {
@@ -99,35 +84,6 @@ export default function CodexPage() {
   useEffect(() => {
     void load();
   }, []);
-
-  useEffect(() => {
-    if (!logEmail) {
-      return;
-    }
-    let active = true;
-
-    const loadLog = async () => {
-      try {
-        const data = await fetchCodexRetryLog(logEmail);
-        if (!active) {
-          return;
-        }
-        setLogText(data.log || "");
-        setLogRunning(Boolean(data.running));
-      } catch (error) {
-        if (active) {
-          toast.error(error instanceof Error ? error.message : "加载 Codex 日志失败");
-        }
-      }
-    };
-
-    void loadLog();
-    const timer = window.setInterval(loadLog, 2500);
-    return () => {
-      active = false;
-      window.clearInterval(timer);
-    };
-  }, [logEmail]);
 
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase();
@@ -195,79 +151,6 @@ export default function CodexPage() {
     }
   };
 
-  const handleRetry = async (item: CodexCredentialItem) => {
-    if (!item.email) {
-      toast.error("该凭证没有邮箱，无法按邮箱补跑");
-      return;
-    }
-    const key = `${item.filename}:retry`;
-    setRowBusy(key, true);
-    try {
-      const data = await retryCodexByEmail(item.email, cpaPoolId);
-      toast.success(data.message || "已启动 Codex 补跑");
-      setLogEmail(item.email);
-      void load(true);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "启动补跑失败");
-    } finally {
-      setRowBusy(key, false);
-    }
-  };
-
-  const handleBulkRetry = async () => {
-    const emails = Array.from(new Set(selectedItems.map((item) => item.email).filter(Boolean) as string[]));
-    if (emails.length === 0) {
-      toast.error("所选凭证没有可补跑邮箱");
-      return;
-    }
-    setRowBusy("bulk-retry", true);
-    try {
-      const data = await retryCodexBulk(emails, workers, cpaPoolId);
-      toast.success(data.message || `已启动 ${data.started_count || emails.length} 个 Codex 补跑`);
-      void load(true);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "批量补跑失败");
-    } finally {
-      setRowBusy("bulk-retry", false);
-    }
-  };
-
-  const handleStop = async (item: CodexCredentialItem) => {
-    if (!item.email) {
-      toast.error("该凭证没有邮箱，无法停止");
-      return;
-    }
-    const key = `${item.filename}:stop`;
-    setRowBusy(key, true);
-    try {
-      const data = await stopCodexRetry(item.email);
-      toast.success(data.message || "已发送停止信号");
-      void load(true);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "停止失败");
-    } finally {
-      setRowBusy(key, false);
-    }
-  };
-
-  const handleResetRetrying = async (item: CodexCredentialItem) => {
-    if (!item.email) {
-      toast.error("该凭证没有邮箱，无法 reset");
-      return;
-    }
-    const key = `${item.filename}:reset-retry`;
-    setRowBusy(key, true);
-    try {
-      await resetCodexRetrying(item.email, "failed");
-      toast.success("已重置补跑状态");
-      void load(true);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "重置失败");
-    } finally {
-      setRowBusy(key, false);
-    }
-  };
-
   const handleResetExport = async (item: CodexCredentialItem) => {
     const key = `${item.filename}:reset-export`;
     setRowBusy(key, true);
@@ -307,14 +190,13 @@ export default function CodexPage() {
           <div className="space-y-3">
             <div>
               <h1 className="text-xl font-semibold tracking-normal text-stone-950 dark:text-stone-50">Codex 凭证管理</h1>
-              <p className="mt-1 text-sm text-stone-500 dark:text-stone-400">按邮箱补跑、查看日志、停止、reset、下载和删除 Codex OAuth 凭证。</p>
+              <p className="mt-1 text-sm text-stone-500 dark:text-stone-400">下载和删除 Codex OAuth 凭证。</p>
             </div>
             <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
               {[
                 ["总数", summary.total],
                 ["未导出", summary.unexported],
                 ["已导出", summary.exported],
-                ["补跑中", summary.retrying],
               ].map(([label, value]) => (
                 <div key={label} className="rounded-lg border border-stone-200 bg-stone-50 px-3 py-2 dark:border-white/10 dark:bg-white/5">
                   <div className="text-xs text-stone-500 dark:text-stone-400">{label}</div>
@@ -337,26 +219,6 @@ export default function CodexPage() {
               <Button variant="outline" className="h-10 rounded-lg" onClick={() => void load()} disabled={isLoading}>
                 <RefreshCcw className="size-4" />
                 刷新
-              </Button>
-            </div>
-            <div className="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_120px_auto]">
-              <Input
-                value={cpaPoolId}
-                onChange={(event) => setCpaPoolId(event.target.value)}
-                className="h-10 rounded-lg border-stone-200 bg-white dark:border-white/10 dark:bg-stone-900"
-                placeholder="CPA pool id，可留空"
-              />
-              <Input
-                type="number"
-                min={1}
-                max={16}
-                value={workers}
-                onChange={(event) => setWorkers(Math.max(1, Math.min(16, Number(event.target.value) || 1)))}
-                className="h-10 rounded-lg border-stone-200 bg-white dark:border-white/10 dark:bg-stone-900"
-              />
-              <Button className="h-10 rounded-lg bg-stone-950 text-white hover:bg-stone-800" onClick={handleBulkRetry} disabled={selected.length === 0 || busy["bulk-retry"]}>
-                <RotateCcw className="size-4" />
-                批量补跑
               </Button>
             </div>
           </div>
@@ -425,8 +287,8 @@ export default function CodexPage() {
                     </TableCell>
                     <TableCell>
                       <div className="flex flex-col gap-1">
-                        <Badge variant={statusBadgeVariant(item.retrying ? "retrying" : item.codex_status)} className="w-fit">
-                          {item.retrying ? "retrying" : item.codex_status || "unknown"}
+                        <Badge variant={statusBadgeVariant(item.codex_status)} className="w-fit">
+                          {item.codex_status || "unknown"}
                         </Badge>
                         {item.codex_error ? <div className="max-w-[240px] truncate text-xs text-rose-600" title={item.codex_error}>{item.codex_error}</div> : null}
                       </div>
@@ -449,22 +311,6 @@ export default function CodexPage() {
                           <Download className="size-4" />
                           CPA
                         </Button>
-                        <Button size="sm" variant="outline" className="h-8 rounded-lg px-2" onClick={() => item.email && setLogEmail(item.email)} disabled={!item.email}>
-                          <FileText className="size-4" />
-                          日志
-                        </Button>
-                        <Button size="sm" variant="outline" className="h-8 rounded-lg px-2" onClick={() => void handleRetry(item)} disabled={!item.email || busy[`${item.filename}:retry`]}>
-                          <RotateCcw className="size-4" />
-                          补跑
-                        </Button>
-                        <Button size="sm" variant="outline" className="h-8 rounded-lg px-2" onClick={() => void handleStop(item)} disabled={!item.email || busy[`${item.filename}:stop`]}>
-                          <Square className="size-4" />
-                          停止
-                        </Button>
-                        <Button size="sm" variant="outline" className="h-8 rounded-lg px-2" onClick={() => void handleResetRetrying(item)} disabled={!item.email || busy[`${item.filename}:reset-retry`]}>
-                          <RefreshCcw className="size-4" />
-                          reset
-                        </Button>
                         <Button size="sm" variant="outline" className="h-8 rounded-lg px-2" onClick={() => void handleResetExport(item)} disabled={busy[`${item.filename}:reset-export`]}>
                           <RotateCcw className="size-4" />
                           导出标记
@@ -482,18 +328,6 @@ export default function CodexPage() {
           </TableBody>
         </Table>
       </div>
-
-      <Dialog open={Boolean(logEmail)} onOpenChange={(open) => !open && setLogEmail("")}>
-        <DialogContent className="max-w-4xl rounded-xl p-0">
-          <DialogHeader className="border-b border-stone-100 px-5 py-4 dark:border-white/10">
-            <DialogTitle className="text-base">Codex 补跑日志</DialogTitle>
-            <DialogDescription>{logEmail} {logRunning ? "· 运行中" : ""}</DialogDescription>
-          </DialogHeader>
-          <pre className="max-h-[70vh] overflow-auto bg-stone-950 px-4 py-3 font-mono text-xs leading-5 whitespace-pre-wrap text-stone-100">
-            {logText || "暂无日志"}
-          </pre>
-        </DialogContent>
-      </Dialog>
     </section>
   );
 }

@@ -5,7 +5,6 @@ from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
 from api.support import require_admin
-from services.account_service import account_service
 from services.codex_management_service import CodexManagementError, codex_management_service
 
 
@@ -15,23 +14,6 @@ class CodexFilenameRequest(BaseModel):
 
 class CodexFilenamesRequest(BaseModel):
     filenames: list[str] = Field(default_factory=list)
-
-
-class CodexEmailRequest(BaseModel):
-    email: str = ""
-    status: str = "failed"
-    provider: str = ""
-    cpa_pool_id: str = ""
-
-
-class CodexBulkRetryRequest(BaseModel):
-    emails: list[str] = Field(default_factory=list)
-    access_tokens: list[str] = Field(default_factory=list)
-    account_ids: list[int | str] = Field(default_factory=list)
-    ids: list[int | str] = Field(default_factory=list)
-    workers: int = 1
-    provider: str = ""
-    cpa_pool_id: str = ""
 
 
 def create_router() -> APIRouter:
@@ -131,90 +113,4 @@ def create_router() -> APIRouter:
                 skipped.append({"filename": name, "reason": f"{type(exc).__name__}: {exc}"})
         return {"ok": True, "deleted": deleted, "deleted_count": len(deleted), "skipped": skipped}
 
-    @router.post("/api/codex/stop")
-    async def stop_codex_retry(body: CodexEmailRequest, authorization: str | None = Header(default=None)):
-        require_admin(authorization)
-        result = codex_management_service.request_stop(body.email)
-        status = int(result.pop("status", 200) or 200)
-        if status >= 400:
-            raise HTTPException(status_code=status, detail={"error": result.get("error") or "停止失败"})
-        return result
-
-    @router.post("/api/codex/stop-bulk")
-    async def stop_codex_retry_bulk(body: CodexBulkRetryRequest, authorization: str | None = Header(default=None)):
-        require_admin(authorization)
-        emails = _resolve_emails(body)
-        if not emails:
-            raise HTTPException(status_code=400, detail={"error": "emails 或 access_tokens 必须是非空数组"})
-        stopped: list[dict[str, object]] = []
-        skipped: list[dict[str, str]] = []
-        for email in emails:
-            result = codex_management_service.request_stop(email)
-            if result.get("ok"):
-                stopped.append({"email": email, "running": result.get("running"), "injected": result.get("injected")})
-            else:
-                skipped.append({"email": email, "reason": str(result.get("error") or "停止失败")})
-        return {"ok": True, "stopped": stopped, "stopped_count": len(stopped), "skipped": skipped}
-
-    @router.post("/api/codex/reset-retrying")
-    async def reset_codex_retrying(body: CodexEmailRequest, authorization: str | None = Header(default=None)):
-        require_admin(authorization)
-        try:
-            return codex_management_service.reset_retrying(body.email, body.status)
-        except CodexManagementError as exc:
-            raise HTTPException(status_code=400, detail={"error": str(exc)}) from exc
-
-    @router.post("/api/codex/retry")
-    async def retry_codex(body: CodexEmailRequest, authorization: str | None = Header(default=None)):
-        require_admin(authorization)
-        try:
-            return codex_management_service.retry(body.email, provider=body.provider, cpa_pool_id=body.cpa_pool_id)
-        except CodexManagementError as exc:
-            raise HTTPException(status_code=409, detail={"error": str(exc)}) from exc
-
-    @router.post("/api/codex/retry-bulk")
-    async def retry_codex_bulk(body: CodexBulkRetryRequest, authorization: str | None = Header(default=None)):
-        require_admin(authorization)
-        emails = _resolve_emails(body)
-        if not emails:
-            raise HTTPException(status_code=400, detail={"error": "emails 或 access_tokens 必须是非空数组"})
-        try:
-            return codex_management_service.retry_bulk(
-                emails,
-                workers=body.workers,
-                provider=body.provider,
-                cpa_pool_id=body.cpa_pool_id,
-            )
-        except CodexManagementError as exc:
-            raise HTTPException(status_code=409, detail={"error": str(exc)}) from exc
-
-    @router.get("/api/codex/retry-log")
-    async def codex_retry_log(email: str = "", authorization: str | None = Header(default=None)):
-        require_admin(authorization)
-        if not str(email or "").strip():
-            raise HTTPException(status_code=400, detail={"error": "email 为空"})
-        return codex_management_service.read_retry_log(email)
-
     return router
-
-
-def _resolve_emails(body: CodexBulkRetryRequest) -> list[str]:
-    values = [str(item or "").strip() for item in body.emails if str(item or "").strip()]
-    if values:
-        return list(dict.fromkeys(values))
-    if body.access_tokens:
-        emails: list[str] = []
-        for token in body.access_tokens:
-            account = account_service.get_account(str(token or "").strip())
-            if account and str(account.get("email") or "").strip():
-                emails.append(str(account.get("email") or "").strip())
-        return list(dict.fromkeys(emails))
-    ids = body.account_ids or body.ids
-    if ids:
-        wanted = {str(item) for item in ids}
-        emails = []
-        for account in account_service.list_accounts():
-            if str(account.get("id") or "") in wanted and str(account.get("email") or "").strip():
-                emails.append(str(account.get("email") or "").strip())
-        return list(dict.fromkeys(emails))
-    return []

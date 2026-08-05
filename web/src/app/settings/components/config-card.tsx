@@ -34,7 +34,6 @@ export function ConfigCard() {
   const setImageTimeoutRetrySecs = useSettingsStore((state) => state.setImageTimeoutRetrySecs);
   const setAutoRemoveInvalidAccounts = useSettingsStore((state) => state.setAutoRemoveInvalidAccounts);
   const setAutoRemoveRateLimitedAccounts = useSettingsStore((state) => state.setAutoRemoveRateLimitedAccounts);
-  const setAutoReloginAfterRefresh = useSettingsStore((state) => state.setAutoReloginAfterRefresh);
   const setAccountManagementLogEnabled = useSettingsStore((state) => state.setAccountManagementLogEnabled);
   const setLogLevel = useSettingsStore((state) => state.setLogLevel);
   const setProxy = useSettingsStore((state) => state.setProxy);
@@ -346,16 +345,6 @@ export function ConfigCard() {
             </p>
           </div>
           <div className="flex gap-4 md:col-span-2">
-            <div className="flex-1 space-y-2">
-              <label className="flex items-center gap-3 rounded-xl border border-stone-200 bg-white px-4 py-3 text-sm text-stone-700">
-                <Checkbox
-                  checked={Boolean(config?.auto_relogin_after_refresh)}
-                  onCheckedChange={(checked) => setAutoReloginAfterRefresh(Boolean(checked))}
-                />
-                刷新后自动尝试移除异常状态
-              </label>
-              <p className="text-xs text-stone-500">开启后刷新时自动尝试密码登录恢复账号。</p>
-            </div>
             <div className="flex-1 space-y-2">
               <label className="flex items-center gap-3 rounded-xl border border-stone-200 bg-white px-4 py-3 text-sm text-stone-700">
                 <Checkbox

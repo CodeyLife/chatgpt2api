@@ -42,9 +42,6 @@ class AccountService:
     # 刷新进度追踪
     _refresh_progress: dict[str, dict] = {}
     _refresh_progress_lock = Lock()
-    # 重新登录进度追踪
-    _relogin_progress: dict[str, dict] = {}
-    _relogin_progress_lock = Lock()
 
     def __init__(self, storage_backend: StorageBackend):
         self.storage = storage_backend
@@ -587,133 +584,8 @@ class AccountService:
             except Exception as exc:
                 error_str = str(exc or "")
                 self._record_token_refresh_error(active_token, event, error_str)
-                # 如果是 app_session_terminated 错误，尝试密码重新登录
-                if "app_session_terminated" in error_str.lower():
-                    # 获取账号信息（email, password）
-                    email = str(account.get("email") or "").strip()
-                    password = str(account.get("password") or "").strip()
-                    if email and password:
-                        # 创建新线程执行密码重新登录
-                        t = Thread(
-                            target=self._password_re_login_thread,
-                            args=(active_token, email, password, event),
-                            daemon=True,
-                        )
-                        t.start()
                 return active_token
             return self._apply_refreshed_tokens(active_token, token_data, event)
-
-    def _password_re_login_thread(self, access_token: str, email: str, password: str, event: str, progress_id: str | None = None) -> None:
-        """密码重新登录线程入口"""
-        try:
-            # 从账号信息取持久化的 device_id 和 fingerprint_profile，
-            # 保证重登指纹与注册时一致，避免触发"同邮箱跨设备"风控
-            account = self.get_account(access_token) or {}
-            saved_device_id = str(account.get("device_id") or "").strip()
-            saved_profile_name = str(account.get("fingerprint_profile") or "").strip()
-            result = self._login_with_password(email, password, device_id=saved_device_id, profile_name=saved_profile_name)
-            if result.get("ok"):
-                # 登录成功，更新账号
-                new_access_token = result.get("access_token", "")
-                new_refresh_token = result.get("refresh_token", "")
-                new_id_token = result.get("id_token", "")
-                new_expires_at = result.get("expires_at")
-
-                # 构建 token_data 供 _apply_refreshed_tokens 使用
-                token_data = {
-                    "access_token": new_access_token,
-                    "refresh_token": new_refresh_token,
-                    "id_token": new_id_token,
-                }
-
-                # 使用 _apply_refreshed_tokens 更新账号（处理 token 别名）
-                new_token = self._apply_refreshed_tokens(access_token, token_data, f"{event}:password_relogin")
-
-                # 额外更新 source_type 和 status（静默，避免重复日志）
-                self.update_account(new_token, {
-                    "source_type": result.get("source_type", "password"),
-                    "status": "正常",
-                }, quiet=True)
-
-                self._log_account(
-                    "更新账号",
-                    {
-                        "source": event,
-                        "old_token": anonymize_token(access_token),
-                        "new_token": anonymize_token(new_access_token),
-                        "email": email,
-                        "status": "成功",
-                    },
-                )
-                if progress_id:
-                    self.update_relogin_progress(progress_id, access_token, "成功")
-            else:
-                # 登录失败
-                error_type = result.get("error", "")
-                if error_type == "password_verify_failed_403" and isinstance(result.get("detail"), dict):
-                    self._log_account(
-                        "更新账号",
-                        {
-                            "source": event,
-                            "token": anonymize_token(access_token),
-                            "email": email,
-                            "status": "失败",
-                            "error": error_type,
-                            "detail": result.get("detail", {}),
-                        },
-                    )
-                    detail_error = result["detail"].get("error", {})
-                    if isinstance(detail_error, dict) and detail_error.get("code") == "account_deactivated":
-                        # 账号已删除/停用 → 标记为禁用
-                        self.update_account(access_token, {"status": "禁用", "quota": 0}, quiet=True)
-                        account = self.get_account(access_token) or {}
-                        self._log_account(
-                            "账号已停用-标记禁用",
-                            {
-                                "source": event,
-                                "token": anonymize_token(access_token),
-                                "email": email,
-                                "detail": result.get("detail", {}),
-                            },
-                        )
-                        if progress_id:
-                            self.update_relogin_progress(progress_id, access_token, "禁用")
-                    else:
-                        # 永久故障：将账号标记为异常（或自动移除）
-                        self.remove_invalid_token(access_token, f"{event}:password_relogin_failed", quiet=True)
-                        if progress_id:
-                            self.update_relogin_progress(progress_id, access_token, "异常", error_type)
-                else:
-                    self._log_account(
-                        "更新账号",
-                        {
-                            "source": event,
-                            "token": anonymize_token(access_token),
-                            "email": email,
-                            "status": "失败",
-                            "error": error_type,
-                            "detail": result.get("detail", {}),
-                        },
-                    )
-                    # 永久故障：将账号标记为异常（或自动移除）
-                    self.remove_invalid_token(access_token, f"{event}:password_relogin_failed", quiet=True)
-                    if progress_id:
-                        self.update_relogin_progress(progress_id, access_token, "异常", error_type)
-        except Exception as exc:
-            self._log_account(
-                "更新账号",
-                {
-                    "source": event,
-                    "token": anonymize_token(access_token),
-                    "email": email,
-                    "status": "异常",
-                    "error": str(exc),
-                },
-            )
-            # 将账号标记为异常（或自动移除）
-            self.remove_invalid_token(access_token, f"{event}:password_relogin_exception", quiet=True)
-            if progress_id:
-                self.update_relogin_progress(progress_id, access_token, "异常", str(exc))
 
     def _login_with_password(self, email: str, password: str, device_id: str = "", profile_name: str = "") -> dict:
         """通过邮箱+密码登录，返回 {access_token, refresh_token, id_token, ...}
@@ -1007,7 +879,6 @@ class AccountService:
             "refreshed": refreshed,
             "errors": errors,
             "items": self.list_accounts(),
-            "relogined": 0,
         }
 
     def list_tokens(self) -> list[str]:
@@ -1182,8 +1053,8 @@ class AccountService:
     def mark_text_failed(self, access_token: str, event: str = "text_stream") -> None:
         """记录文本对话失败，累加 fail 计数。
 
-        连续失败超过 MAX_TEXT_FAIL_COUNT 后自动标记为"异常"，
-        防止一直重试已失效的账号。
+        仅用于追踪，不自动标记为"异常"——因为 403 通常是 IP 级封锁，
+        标记账号无意义且会造成"标记→刷新→恢复→再标记"的死循环。
         """
         if not access_token:
             return
@@ -1195,11 +1066,6 @@ class AccountService:
             next_item = dict(current)
             next_item["last_used_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             next_item["fail"] = int(next_item.get("fail") or 0) + 1
-            if next_item["fail"] >= 5:
-                next_item["status"] = "异常"
-                next_item["quota"] = 0
-                self._log_account("文本对话连续失败，自动标记为异常",
-                                  {"source": event, "token": anonymize_token(access_token)})
             account = self._normalize_account(next_item)
             if account is None:
                 return
@@ -1656,66 +1522,6 @@ class AccountService:
         with self._refresh_progress_lock:
             self._refresh_progress.pop(progress_id, None)
 
-    # ---- 重新登录进度追踪 ----
-
-    def init_relogin_progress(self, progress_id: str, total: int) -> None:
-        """初始化重新登录进度记录。"""
-        with self._relogin_progress_lock:
-            self._relogin_progress[progress_id] = {
-                "total": total,
-                "processed": 0,
-                "done": False,
-                "error": None,
-                "results": [],
-                "created_at": time.time(),
-            }
-
-    def update_relogin_progress(self, progress_id: str, token: str, status: str, error: str | None = None) -> None:
-        """更新单个重新登录进度。当所有账号处理完毕时自动标记完成。"""
-        with self._relogin_progress_lock:
-            progress = self._relogin_progress.get(progress_id)
-            if progress is None:
-                return
-            progress["processed"] += 1
-            progress["results"].append({
-                "token": anonymize_token(token),
-                "status": status,
-                "error": error,
-            })
-            # results 超过 500 条时只保留最后 500 条，避免大量账号重登时内存无界增长
-            if len(progress["results"]) > 500:
-                progress["results"] = progress["results"][-500:]
-            if progress["processed"] >= progress["total"]:
-                progress["done"] = True
-
-    def finish_relogin_progress(self, progress_id: str, result: dict | None = None, error: str | None = None) -> None:
-        """标记重新登录完成。"""
-        with self._relogin_progress_lock:
-            progress = self._relogin_progress.get(progress_id)
-            if progress is None:
-                return
-            progress["done"] = True
-            progress["result"] = result
-            if error:
-                progress["error"] = error
-
-    def get_relogin_progress(self, progress_id: str) -> dict | None:
-        """查询重新登录进度。超过 30 分钟自动清理。"""
-        with self._relogin_progress_lock:
-            progress = self._relogin_progress.get(progress_id)
-            if progress is None:
-                return None
-            created_at = progress.get("created_at") or 0
-            if created_at and time.time() - created_at > 1800:
-                self._relogin_progress.pop(progress_id, None)
-                return None
-            return dict(progress) if progress else None
-
-    def clean_relogin_progress(self, progress_id: str) -> None:
-        """清理过期进度记录。"""
-        with self._relogin_progress_lock:
-            self._relogin_progress.pop(progress_id, None)
-
     def refresh_accounts(
         self,
         access_tokens: list[str],
@@ -1725,7 +1531,7 @@ class AccountService:
         access_tokens = list(dict.fromkeys(token for token in access_tokens if token))
         if not access_tokens:
             items = self.list_accounts()
-            result = {"refreshed": 0, "errors": [], "items": items, "relogined": 0}
+            result = {"refreshed": 0, "errors": [], "items": items}
             if progress_id:
                 self.finish_refresh_progress(progress_id, result)
             return result
@@ -1771,33 +1577,10 @@ class AccountService:
         else:
             executor.shutdown(wait=True, cancel_futures=True)
 
-        # 自动重新登录异常账号（仅当配置开启时）
-        relogined = 0
-        if config.auto_relogin_after_refresh:
-            for token in access_tokens:
-                account = self.get_account(token)
-                if not account:
-                    continue
-                status = str(account.get("status") or "").strip()
-                if status != "异常":
-                    continue
-                email = str(account.get("email") or "").strip()
-                password = str(account.get("password") or "").strip()
-                if not email or not password:
-                    continue
-                t = Thread(
-                    target=self._password_re_login_thread,
-                    args=(token, email, password, "auto_relogin_after_refresh"),
-                    daemon=True,
-                )
-                t.start()
-                relogined += 1
-
         result = {
             "refreshed": refreshed,
             "errors": errors,
             "items": self.list_accounts(),
-            "relogined": relogined,
         }
 
         if progress_id:
@@ -1808,77 +1591,9 @@ class AccountService:
     def verify_new_accounts(self, access_tokens: list[str] | None = None) -> dict[str, Any]:
         tokens = list(dict.fromkeys(token for token in (access_tokens or self.list_new_account_health_tokens()) if token))
         if not tokens:
-            return {"refreshed": 0, "errors": [], "items": self.list_accounts(), "relogined": 0}
+            return {"refreshed": 0, "errors": [], "items": self.list_accounts()}
         tokens = tokens[: self._new_account_max_verify_workers()]
         return self.refresh_accounts(tokens, defer_invalid_removal=True)
-
-    def re_login_accounts(self, access_tokens: list[str], progress_id: str | None = None) -> dict[str, Any]:
-        """对选中账号执行密码重新登录流程。
-
-        仅对包含 email + password 的账号有效。
-        登录成功后自动将状态设为"正常"。
-        """
-        access_tokens = list(dict.fromkeys(token for token in access_tokens if token))
-        if not access_tokens:
-            result = {"relogined": 0, "skipped": 0, "errors": [], "items": self.list_accounts()}
-            if progress_id:
-                self.finish_relogin_progress(progress_id, result)
-            return result
-
-        if progress_id:
-            self.init_relogin_progress(progress_id, len(access_tokens))
-
-        relogined = 0
-        skipped = 0
-        errors = []
-
-        # 收集需要重登的任务
-        relogin_tasks: list[tuple[str, str, str]] = []
-        for token in access_tokens:
-            account = self.get_account(token)
-            if not account:
-                errors.append({"token": anonymize_token(token), "error": "账号不存在"})
-                if progress_id:
-                    self.update_relogin_progress(progress_id, token, "跳过", "账号不存在")
-                continue
-
-            email = str(account.get("email") or "").strip()
-            password = str(account.get("password") or "").strip()
-            if not email or not password:
-                skipped += 1
-                if progress_id:
-                    self.update_relogin_progress(progress_id, token, "跳过", "无邮箱密码")
-                continue
-
-            relogin_tasks.append((token, email, password))
-
-        # 用线程池执行，限制并发数（最多 8 个同时重登），避免大量账号同时重登导致内存尖峰
-        if relogin_tasks:
-            def _run_relogin_batch() -> None:
-                with ThreadPoolExecutor(max_workers=min(8, len(relogin_tasks))) as executor:
-                    for task_token, task_email, task_password in relogin_tasks:
-                        executor.submit(
-                            self._password_re_login_thread,
-                            task_token, task_email, task_password, "manual_relogin", progress_id,
-                        )
-            batch_thread = Thread(target=_run_relogin_batch, daemon=True)
-            batch_thread.start()
-        relogined = len(relogin_tasks)
-
-        result = {
-            "relogined": relogined,
-            "skipped": skipped,
-            "errors": errors,
-            "items": self.list_accounts(),
-        }
-        if progress_id:
-            # 如果所有账号都已同步处理完毕（没有启动线程），直接标记完成
-            if relogined == 0:
-                self.finish_relogin_progress(progress_id, result)
-            else:
-                # 有线程在运行，等线程结束后再完成
-                pass
-        return result
 
     def build_export_items(self, access_tokens: list[str] | None = None) -> list[dict[str, Any]]:
         target_tokens = set(token for token in (access_tokens or []) if token)

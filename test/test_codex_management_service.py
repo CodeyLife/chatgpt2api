@@ -37,25 +37,6 @@ class FakeAccounts:
         return account
 
 
-class FakeOAuthRetry:
-    def __init__(self) -> None:
-        self.finished = False
-        self.captured = False
-
-    def finish_callback(self, token: str, callback_url: str, pool_id: str = ""):
-        self.finished = True
-        return {"ok": True, "pool_id": pool_id, "auth_json": {"email": "a@example.com", "access_token": token}}
-
-    def capture_callback(self, token: str, provider: str, *, cpa_pool_id: str = "", timeout_seconds: int | None = None):
-        self.captured = True
-        return {
-            "ok": True,
-            "pool_id": cpa_pool_id,
-            "browser": {"provider": provider},
-            "auth_json": {"email": "a@example.com", "access_token": token},
-        }
-
-
 class FakePools:
     def list_pools(self):
         return [{"id": "pool-1", "base_url": "https://cpa.example", "secret_key": "secret"}]
@@ -72,7 +53,6 @@ class CodexManagementServiceTests(unittest.TestCase):
         root = Path(self.tmp.name)
         self.patchers = [
             patch.object(module, "CODEX_CREDENTIAL_DIR", root / "credentials"),
-            patch.object(module, "CODEX_LOG_DIR", root / "logs"),
             patch.object(module, "CODEX_INDEX_FILE", root / "credentials" / "index.json"),
         ]
         for patcher in self.patchers:
@@ -80,8 +60,7 @@ class CodexManagementServiceTests(unittest.TestCase):
             self.addCleanup(patcher.stop)
         self.addCleanup(self.tmp.cleanup)
         self.accounts = FakeAccounts()
-        self.oauth = FakeOAuthRetry()
-        self.service = CodexManagementService(accounts=self.accounts, oauth_retry=self.oauth, pools=FakePools())
+        self.service = CodexManagementService(accounts=self.accounts, pools=FakePools())
 
     def test_save_list_download_reset_and_delete_credential(self) -> None:
         filename = self.service.save_credential({"email": "a@example.com", "access_token": "token-1"}, filename="codex-a.json")
@@ -106,30 +85,6 @@ class CodexManagementServiceTests(unittest.TestCase):
         self.assertEqual(self.service.list()["summary"]["exported"], 0)
         self.assertTrue(self.service.delete_credential(filename))
         self.assertEqual(self.service.list()["summary"]["total"], 0)
-
-    def test_stop_and_reset_retrying_update_account_status_and_log(self) -> None:
-        self.assertTrue(self.service.reserve("a@example.com"))
-
-        stopped = self.service.request_stop("a@example.com")
-        self.assertTrue(stopped["ok"])
-        self.assertTrue(stopped["running"])
-        self.assertEqual(self.accounts.accounts[0]["codex_oauth"]["status"], "stopped")
-
-        reset = self.service.reset_retrying("a@example.com", "failed")
-        self.assertTrue(reset["ok"])
-        self.assertFalse(self.service.is_retrying("a@example.com"))
-        self.assertEqual(self.accounts.accounts[0]["codex_oauth"]["status"], "failed")
-        self.assertIn("手动", self.service.read_retry_log("a@example.com")["log"])
-
-    def test_finish_and_capture_callback_save_credential_file(self) -> None:
-        finished = self.service.finish_callback_and_save("token-1", "http://localhost/callback?code=1", "pool-1")
-        captured = self.service.capture_callback_and_save("token-1", "browser_use", cpa_pool_id="pool-1")
-
-        self.assertTrue(self.oauth.finished)
-        self.assertTrue(self.oauth.captured)
-        self.assertTrue(finished["credential_filename"].endswith(".json"))
-        self.assertTrue(captured["credential_filename"].endswith(".json"))
-        self.assertEqual(self.service.list()["summary"]["total"], 2)
 
 
 if __name__ == "__main__":

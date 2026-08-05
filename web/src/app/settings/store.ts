@@ -10,12 +10,18 @@ import {
   fetchCPAPoolFiles,
   fetchCPAPools,
   fetchBackups,
+  fetchRegisterConfig,
   fetchSettingsConfig,
   runBackupNow,
+  resetRegister as resetRegisterApi,
+  resetOutlookPool as resetOutlookPoolApi,
+  startRegister,
+  stopRegister,
   syncImageStorage,
   startCPAImport,
   testBackupConnection,
   testImageStorageConnection,
+  updateRegisterConfig,
   updateCPAPool,
   updateSettingsConfig,
   type BackupItem,
@@ -29,6 +35,7 @@ import {
   type ProxyRuntimeClearanceMode,
   type ProxyRuntimeEgressMode,
   type ProxyRuntimeSettings,
+  type RegisterConfig,
   type SettingsConfig,
   type ThirdPartyAppsSettings,
 } from "@/lib/api";
@@ -212,7 +219,6 @@ function normalizeConfig(config: SettingsConfig): SettingsConfig {
     image_timeout_retry_secs: Number(config.image_timeout_retry_secs || 30),
     auto_remove_invalid_accounts: Boolean(config.auto_remove_invalid_accounts),
     auto_remove_rate_limited_accounts: Boolean(config.auto_remove_rate_limited_accounts),
-    auto_relogin_after_refresh: Boolean(config.auto_relogin_after_refresh),
     account_management_log_enabled: Boolean(config.account_management_log_enabled),
     log_levels: Array.isArray(config.log_levels) ? config.log_levels : [],
     proxy: typeof config.proxy === "string" ? config.proxy : "",
@@ -338,7 +344,6 @@ type SettingsStore = {
   setImageTimeoutRetrySecs: (value: string) => void;
   setAutoRemoveInvalidAccounts: (value: boolean) => void;
   setAutoRemoveRateLimitedAccounts: (value: boolean) => void;
-  setAutoReloginAfterRefresh: (value: boolean) => void;
   setAccountManagementLogEnabled: (value: boolean) => void;
   setLogLevel: (level: string, enabled: boolean) => void;
   setProxy: (value: string) => void;
@@ -359,6 +364,9 @@ type SettingsStore = {
   setBackupField: (key: keyof BackupSettings, value: string | boolean) => void;
   setBackupInclude: (key: keyof BackupSettings["include"], value: boolean) => void;
 
+  registerConfig: RegisterConfig | null;
+  isLoadingRegister: boolean;
+  isSavingRegister: boolean;
   loadRegister: (silent?: boolean) => Promise<void>;
   setRegisterConfig: (config: RegisterConfig) => void;
   setRegisterDriver: (value: string) => void;
@@ -437,6 +445,10 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
   showSecret: false,
   isSavingPool: false,
 
+  registerConfig: null,
+  isLoadingRegister: false,
+  isSavingRegister: false,
+
   browserOpen: false,
   browserPool: null,
   remoteFiles: [],
@@ -500,7 +512,6 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
         image_timeout_retry_secs: Math.max(1, Number(config.image_timeout_retry_secs) || 30),
         auto_remove_invalid_accounts: Boolean(config.auto_remove_invalid_accounts),
         auto_remove_rate_limited_accounts: Boolean(config.auto_remove_rate_limited_accounts),
-        auto_relogin_after_refresh: Boolean(config.auto_relogin_after_refresh),
         account_management_log_enabled: Boolean(config.account_management_log_enabled),
         proxy: config.proxy.trim(),
         base_url: String(config.base_url || "").trim(),
@@ -648,10 +659,6 @@ export const useSettingsStore = create<SettingsStore>((set, get) => ({
 
   setAutoRemoveRateLimitedAccounts: (value) => {
     set((state) => state.config ? { config: { ...state.config, auto_remove_rate_limited_accounts: value } } : {});
-  },
-
-  setAutoReloginAfterRefresh: (value) => {
-    set((state) => state.config ? { config: { ...state.config, auto_relogin_after_refresh: value } } : {});
   },
 
   setAccountManagementLogEnabled: (value) => {

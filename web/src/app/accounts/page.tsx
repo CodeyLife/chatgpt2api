@@ -48,21 +48,14 @@ import {
   deleteAccounts,
   exportAccounts,
   fetchAccounts,
-  fetchAccountCodexOAuthRetry,
   fetchCPAPools,
   fetchModels,
   fetchRefreshProgress,
-  fetchReLoginProgress,
-  reLoginAccounts,
   refreshAccounts,
   startExtractLink,
-  startAccountPlanCheck,
-  startAccountCodexOAuthRetry,
-  submitAccountCodexOAuthCallback,
   testProxy,
   updateAccount,
   updateAccountNotes,
-  captureAccountCodexOAuthCallback,
   type Account,
   type AccountRefreshResponse,
   type AccountStatus,
@@ -95,13 +88,6 @@ const extractLinkFilterOptions = [
   { label: "提链中", value: "running" },
   { label: "提链失败", value: "failed" },
   { label: "未提链", value: "none" },
-] as const;
-
-const codexOAuthBrowserProviderOptions = [
-  { label: "BrowserUse", value: "browser_use" },
-  { label: "Skyvern", value: "skyvern" },
-  { label: "Roxy", value: "roxy" },
-  { label: "Cloak", value: "cloak" },
 ] as const;
 
 const statusMeta: Record<
@@ -203,7 +189,6 @@ function AccountsPageContent() {
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [availableModels, setAvailableModels] = useState<Model[]>([]);
   const [cpaPools, setCpaPools] = useState<CPAPool[]>([]);
-  const [selectedCpaPoolId, setSelectedCpaPoolId] = useState("");
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [query, setQuery] = useState("");
   const [typeFilter, setTypeFilter] = useState("all");
@@ -215,9 +200,6 @@ function AccountsPageContent() {
   const [editingAccount, setEditingAccount] = useState<Account | null>(null);
   const [bulkNoteOpen, setBulkNoteOpen] = useState(false);
   const [bulkNoteText, setBulkNoteText] = useState("");
-  const [codexCallbackAccount, setCodexCallbackAccount] = useState<Account | null>(null);
-  const [codexCallbackInput, setCodexCallbackInput] = useState("");
-  const [codexBrowserProvider, setCodexBrowserProvider] = useState<(typeof codexOAuthBrowserProviderOptions)[number]["value"]>("browser_use");
   const [editStatus, setEditStatus] = useState<AccountStatus>("正常");
   const [editProxy, setEditProxy] = useState("");
   const [editNote, setEditNote] = useState("");
@@ -229,12 +211,7 @@ function AccountsPageContent() {
   const [isDeleting, setIsDeleting] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
   const [isUpdatingNotes, setIsUpdatingNotes] = useState(false);
-  const [isRelogining, setIsRelogining] = useState(false);
-  const [isCodexRetrying, setIsCodexRetrying] = useState(false);
   const [isExtractingLink, setIsExtractingLink] = useState(false);
-  const [isCheckingPlan, setIsCheckingPlan] = useState(false);
-  const [isSubmittingCodexCallback, setIsSubmittingCodexCallback] = useState(false);
-  const [isCapturingCodexCallback, setIsCapturingCodexCallback] = useState(false);
   const [progress, setProgress] = useState<{
     visible: boolean;
     current: number;
@@ -282,18 +259,6 @@ function AccountsPageContent() {
     }
   };
 
-  const loadCPAPools = async () => {
-    try {
-      const data = await fetchCPAPools();
-      const pools = data.pools || [];
-      setCpaPools(pools);
-      setSelectedCpaPoolId((prev) => prev || pools[0]?.id || "");
-    } catch {
-      setCpaPools([]);
-      setSelectedCpaPoolId("");
-    }
-  };
-
   useEffect(() => {
     if (didLoadRef.current) {
       return;
@@ -301,7 +266,6 @@ function AccountsPageContent() {
     didLoadRef.current = true;
     void loadAccounts();
     void loadModels();
-    void loadCPAPools();
 
     // 清理进度条定时器
     return () => {
@@ -522,49 +486,14 @@ function AccountsPageContent() {
       setAccounts(data.items);
       setSelectedIds((prev) => prev.filter((id) => data.items.some((item) => item.access_token === id)));
 
-      const relogined = data.relogined ?? 0;
-
-      // 显示重新登录进度
-      if (relogined > 0) {
-        setProgress({
-          visible: true,
-          current: 0,
-          total: relogined,
-          message: `正在尝试对 ${relogined} 个账号进行移除异常状态`,
-          email: "",
-        });
-        // 模拟重新登录进度
-        let reCount = 0;
-        await new Promise<void>((resolve) => {
-          const timer = setInterval(() => {
-            reCount += 1;
-            if (reCount >= relogined) {
-              clearInterval(timer);
-              setProgress({
-                visible: true,
-                current: relogined,
-                total: relogined,
-                message: "移除异常状态完成",
-                email: "",
-              });
-              setTimeout(() => setProgress({ visible: false, current: 0, total: 0, message: "", email: "" }), 800);
-              resolve();
-            } else {
-              setProgress((prev) => ({ ...prev, current: reCount }));
-            }
-          }, 150);
-          setTimeout(resolve, 2000);
-        });
-      } else {
-        setProgress({
-          visible: true,
-          current: total,
-          total,
-          message: "刷新完成",
-          email: "",
-        });
-        setTimeout(() => setProgress({ visible: false, current: 0, total: 0, message: "", email: "" }), 800);
-      }
+      setProgress({
+        visible: true,
+        current: total,
+        total,
+        message: "刷新完成",
+        email: "",
+      });
+      setTimeout(() => setProgress({ visible: false, current: 0, total: 0, message: "", email: "" }), 800);
 
       if ((data.errors ?? []).length > 0) {
         const firstError = data.errors?.[0]?.error;
@@ -572,7 +501,7 @@ function AccountsPageContent() {
           `刷新成功 ${data.refreshed} 个，失败 ${(data.errors ?? []).length} 个${firstError ? `，首个错误：${firstError}` : ""}`,
         );
       } else {
-        toast.success(`刷新成功 ${data.refreshed} 个账户${relogined > 0 ? `，已触发 ${relogined} 个账号重新登录` : ""}`);
+        toast.success(`刷新成功 ${data.refreshed} 个账户`);
       }
     } catch (error) {
       setProgress({ visible: false, current: 0, total: 0, message: "", email: "" });
@@ -607,196 +536,6 @@ function AccountsPageContent() {
         }
       }, 500);
     });
-  };
-
-  const handleReLogin = async (accessTokens: string[]) => {
-    if (accessTokens.length === 0) {
-      toast.error("请先选择要恢复的账户");
-      return;
-    }
-
-    // 只处理异常账号，过滤非异常账号
-    const abnormalTokens = accessTokens.filter((token) => {
-      const account = accounts.find((a) => a.access_token === token);
-      return account?.status === "异常";
-    });
-
-    if (abnormalTokens.length === 0) {
-      toast.error("选中账号中没有异常账号");
-      return;
-    }
-
-    if (abnormalTokens.length < accessTokens.length) {
-      toast.info(`已过滤 ${accessTokens.length - abnormalTokens.length} 个非异常账号`);
-    }
-
-    setIsRelogining(true);
-
-    // 计算非选中账号的基数（统计卡片联动用）
-    const selectedTokenSet = new Set(abnormalTokens);
-    const baseAccountsList = accounts.filter((a) => !selectedTokenSet.has(a.access_token));
-    const baseActive = baseAccountsList.filter((a) => a.status === "正常").length;
-    const baseLimited = baseAccountsList.filter((a) => a.status === "限流").length;
-    const baseAbnormal = baseAccountsList.filter((a) => a.status === "异常").length;
-    const baseDisabled = baseAccountsList.filter((a) => a.status === "禁用").length;
-
-    // 显示进度条（真实进度）
-    const total = abnormalTokens.length;
-    setProgress({ visible: true, current: 0, total, message: "正在尝试恢复异常账号...", email: "" });
-
-    try {
-      const { progress_id } = await reLoginAccounts(abnormalTokens);
-
-      // 轮询进度到完成
-      await new Promise<void>((resolve, reject) => {
-        const pollTimer = setInterval(async () => {
-          try {
-            const p = await fetchReLoginProgress(progress_id);
-            if (p.done) {
-              clearInterval(pollTimer);
-              if (p.error) {
-                reject(new Error(p.error));
-                return;
-              }
-              setProgress((prev) => ({ ...prev, current: prev.total, message: "恢复流程已完成" }));
-              setRefreshSummary(null);
-              resolve();
-            } else {
-              // 实时更新进度
-              const results = p.results ?? [];
-              // 找到最新一条有错误的结果
-              const lastErrorResult = [...results].reverse().find((r) => r.error);
-              const emailHint = lastErrorResult
-                ? `失败: ${lastErrorResult.token} ${lastErrorResult.error ?? ""}`
-                : `已处理 ${p.processed}/${p.total}`;
-              setProgress((prev) => ({
-                ...prev,
-                current: p.processed,
-                email: emailHint,
-                message: "正在尝试恢复异常账号...",
-              }));
-
-              // 实时更新统计卡片：基数 + 已处理的恢复结果
-              let runningActive = baseActive;
-              let runningAbnormal = baseAbnormal;
-              let runningDisabled = baseDisabled;
-              for (const r of results) {
-                if (r.status === "成功") {
-                  runningActive += 1;
-                  runningAbnormal -= 1;
-                } else if (r.status === "禁用") {
-                  runningDisabled += 1;
-                  runningAbnormal -= 1;
-                }
-                // "异常"或"跳过"：保持异常状态不变
-              }
-              setRefreshSummary({
-                total: accounts.length,
-                active: runningActive,
-                limited: baseLimited,
-                abnormal: runningAbnormal,
-                disabled: runningDisabled,
-                quota: summary.quota,
-              });
-            }
-          } catch (err) {
-            clearInterval(pollTimer);
-            reject(err);
-          }
-        }, 300);
-      });
-
-      // 等待后台线程完成，再拉取最新数据
-      await new Promise<void>((resolve) => setTimeout(resolve, 500));
-      try {
-        const freshData = await fetchAccounts();
-        setAccounts(freshData.items);
-        setSelectedIds((prev) => prev.filter((id) => freshData.items.some((item) => item.access_token === id)));
-      } catch { /* 静默失败 */ }
-
-      setProgress({
-        visible: true,
-        current: total,
-        total,
-        message: "恢复完成",
-        email: "",
-      });
-      setTimeout(() => setProgress({ visible: false, current: 0, total: 0, message: "", email: "" }), 800);
-
-      toast.success(`恢复流程已全部完成`);
-    } catch (error) {
-      setProgress({ visible: false, current: 0, total: 0, message: "", email: "" });
-      setRefreshSummary(null);
-      const message = error instanceof Error ? error.message : "重新登录失败";
-      toast.error(message);
-    } finally {
-      setIsRelogining(false);
-    }
-  };
-
-  const handleCodexOAuthRetry = async (accessTokens: string[]) => {
-    if (accessTokens.length === 0) {
-      toast.error("请先选择要补跑 Codex OAuth 的账号");
-      return;
-    }
-    if (!selectedCpaPoolId) {
-      toast.error("请先选择 CPA 连接");
-      return;
-    }
-
-    setIsCodexRetrying(true);
-    setProgress({
-      visible: true,
-      current: 0,
-      total: accessTokens.length,
-      message: "正在生成 Codex OAuth 授权地址...",
-      email: "",
-    });
-
-    try {
-      const started = await startAccountCodexOAuthRetry(accessTokens, selectedCpaPoolId);
-      const final = await new Promise<typeof started>((resolve, reject) => {
-        const timer = setInterval(async () => {
-          try {
-            const job = await fetchAccountCodexOAuthRetry(started.job_id);
-            setProgress((prev) => ({
-              ...prev,
-              current: job.completed,
-              message: "正在生成 Codex OAuth 授权地址...",
-            }));
-            if (["done", "failed", "stopped"].includes(job.status)) {
-              clearInterval(timer);
-              resolve(job);
-            }
-          } catch (error) {
-            clearInterval(timer);
-            reject(error);
-          }
-        }, 500);
-      });
-
-      await loadAccounts(true);
-      setProgress({
-        visible: true,
-        current: final.completed,
-        total: final.total,
-        message: "Codex OAuth 补跑完成",
-        email: "",
-      });
-      setTimeout(() => setProgress({ visible: false, current: 0, total: 0, message: "", email: "" }), 800);
-
-      if (final.failed > 0) {
-        const firstError = final.results.find((item) => item.error)?.error;
-        toast.error(`Codex OAuth 授权地址生成 ${final.pending_callback || 0} 个，真正完成 ${final.succeeded} 个，失败 ${final.failed} 个${firstError ? `，首个错误：${firstError}` : ""}`);
-      } else {
-        toast.success(`Codex OAuth 授权地址已生成 ${final.pending_callback || final.succeeded} 个，需继续提交 callback 才算完成`);
-      }
-    } catch (error) {
-      setProgress({ visible: false, current: 0, total: 0, message: "", email: "" });
-      toast.error(error instanceof Error ? error.message : "Codex OAuth 补跑失败");
-    } finally {
-      setIsCodexRetrying(false);
-    }
   };
 
   const handleExtractLink = async (accessTokens: string[]) => {
@@ -835,108 +574,6 @@ function AccountsPageContent() {
       toast.error(error instanceof Error ? error.message : "启动提链失败");
     } finally {
       setIsExtractingLink(false);
-    }
-  };
-
-  const handlePlanCheck = async (accessTokens: string[]) => {
-    if (accessTokens.length === 0) {
-      toast.error("请先选择要复查套餐的账号");
-      return;
-    }
-    setIsCheckingPlan(true);
-    try {
-      const started = await startAccountPlanCheck(accessTokens);
-      setAccounts(started.items);
-      const skippedText = started.skipped > 0 ? `，跳过 ${started.skipped} 个` : "";
-      toast.success(`已提交 ${started.accepted} 个套餐复查任务${skippedText}`);
-      if (started.accepted > 0) {
-        let ticks = 0;
-        const timer = window.setInterval(async () => {
-          ticks += 1;
-          try {
-            const data = await fetchAccounts();
-            setAccounts(data.items);
-            const selected = new Set(accessTokens);
-            const stillRunning = data.items.some((item) => {
-              const status = String(item.chatgpt_plan_check?.status || "").toLowerCase();
-              return selected.has(item.access_token) && ["queued", "running"].includes(status);
-            });
-            if (!stillRunning || ticks >= 60) {
-              window.clearInterval(timer);
-            }
-          } catch {
-            window.clearInterval(timer);
-          }
-        }, 2000);
-      }
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "启动套餐复查失败");
-    } finally {
-      setIsCheckingPlan(false);
-    }
-  };
-
-  const handleSubmitCodexCallback = async () => {
-    if (!codexCallbackAccount) {
-      return;
-    }
-    const callbackUrl = codexCallbackInput.trim();
-    if (!callbackUrl) {
-      toast.error("请粘贴 Codex OAuth callback URL");
-      return;
-    }
-    setIsSubmittingCodexCallback(true);
-    try {
-      const data = await submitAccountCodexOAuthCallback({
-        access_token: codexCallbackAccount.access_token,
-        callback_url: callbackUrl,
-        cpa_pool_id: codexCallbackAccount.codex_oauth?.pool_id || selectedCpaPoolId,
-      });
-      if (Array.isArray(data.items)) {
-        setAccounts(data.items);
-      } else {
-        await loadAccounts(true);
-      }
-      setCodexCallbackAccount(null);
-      setCodexCallbackInput("");
-      const imported = (data.import_result?.added || 0) + (data.import_result?.skipped || 0);
-      toast.success(`Codex callback 已提交${imported ? `，导入 ${imported} 条记录` : ""}`);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "提交 Codex callback 失败");
-    } finally {
-      setIsSubmittingCodexCallback(false);
-    }
-  };
-
-  const handleCaptureCodexCallback = async () => {
-    if (!codexCallbackAccount) {
-      return;
-    }
-    if (!codexCallbackAccount.codex_oauth?.auth_url) {
-      toast.error("当前账号没有 Codex OAuth 授权地址，请先补跑生成");
-      return;
-    }
-    setIsCapturingCodexCallback(true);
-    try {
-      const data = await captureAccountCodexOAuthCallback({
-        access_token: codexCallbackAccount.access_token,
-        provider: codexBrowserProvider,
-        cpa_pool_id: codexCallbackAccount.codex_oauth?.pool_id || selectedCpaPoolId,
-      });
-      if (Array.isArray(data.items)) {
-        setAccounts(data.items);
-      } else {
-        await loadAccounts(true);
-      }
-      setCodexCallbackAccount(null);
-      setCodexCallbackInput("");
-      const imported = (data.import_result?.added || 0) + (data.import_result?.skipped || 0);
-      const provider = data.browser?.provider || codexBrowserProvider;
-      toast.success(`Codex callback 已由 ${provider} 捕获并提交${imported ? `，导入 ${imported} 条记录` : ""}`);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "自动捕获 Codex callback 失败");
-    } finally {
-      setIsCapturingCodexCallback(false);
     }
   };
 
@@ -1217,77 +854,6 @@ function AccountsPageContent() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={Boolean(codexCallbackAccount)} onOpenChange={(open) => {
-        if (!open) {
-          setCodexCallbackAccount(null);
-          setCodexCallbackInput("");
-        }
-      }}>
-        <DialogContent showCloseButton={false} className="rounded-2xl p-6">
-          <DialogHeader className="gap-2">
-            <DialogTitle>提交 Codex OAuth Callback</DialogTitle>
-            <DialogDescription className="text-sm leading-6">
-              粘贴浏览器跳转到 localhost:1455 的 callback URL，或用已配置的浏览器驱动打开授权地址并自动捕获。
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-3">
-            <div className="rounded-xl bg-stone-50 px-3 py-2 text-xs leading-5 text-stone-500">
-              {codexCallbackAccount?.email || maskToken(codexCallbackAccount?.access_token)}
-            </div>
-            <div className="flex flex-col gap-2 rounded-xl border border-stone-200 bg-white p-3 sm:flex-row sm:items-center">
-              <Select value={codexBrowserProvider} onValueChange={(value) => setCodexBrowserProvider(value as typeof codexBrowserProvider)}>
-                <SelectTrigger className="h-10 rounded-xl border-stone-200 bg-white sm:w-40">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {codexOAuthBrowserProviderOptions.map((option) => (
-                    <SelectItem key={option.value} value={option.value}>
-                      {option.label}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <Button
-                variant="outline"
-                className="h-10 rounded-xl border-stone-200 bg-white px-4 text-stone-700 hover:bg-stone-50"
-                onClick={() => void handleCaptureCodexCallback()}
-                disabled={isSubmittingCodexCallback || isCapturingCodexCallback || !codexCallbackAccount?.codex_oauth?.auth_url}
-              >
-                {isCapturingCodexCallback ? <LoaderCircle className="size-4 animate-spin" /> : <Link2 className="size-4" />}
-                自动捕获并提交
-              </Button>
-            </div>
-            <Input
-              value={codexCallbackInput}
-              onChange={(event) => setCodexCallbackInput(event.target.value)}
-              placeholder="http://localhost:1455/auth/callback?code=...&state=..."
-              className="h-11 rounded-xl border-stone-200 bg-white"
-            />
-          </div>
-          <DialogFooter className="pt-2">
-            <Button
-              variant="secondary"
-              className="h-10 rounded-xl bg-stone-100 px-5 text-stone-700 hover:bg-stone-200"
-              onClick={() => {
-                setCodexCallbackAccount(null);
-                setCodexCallbackInput("");
-              }}
-              disabled={isSubmittingCodexCallback || isCapturingCodexCallback}
-            >
-              取消
-            </Button>
-            <Button
-              className="h-10 rounded-xl bg-stone-950 px-5 text-white hover:bg-stone-800"
-              onClick={() => void handleSubmitCodexCallback()}
-              disabled={isSubmittingCodexCallback || isCapturingCodexCallback}
-            >
-              {isSubmittingCodexCallback ? <LoaderCircle className="size-4 animate-spin" /> : <Send className="size-4" />}
-              提交
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
       <section className="space-y-3">
         <div className="grid gap-3 md:grid-cols-3 xl:grid-cols-6">
           {metricCards.map((item) => {
@@ -1498,16 +1064,6 @@ function AccountsPageContent() {
                 </Button>
                 <Button
                   variant="ghost"
-                  className="h-8 rounded-lg px-3 text-stone-500 hover:bg-stone-100"
-                  onClick={() => void handlePlanCheck(selectedTokens)}
-                  disabled={selectedTokens.length === 0 || isCheckingPlan}
-                  title="查询所选账号的 ChatGPT 套餐和 Plus 试用资格"
-                >
-                  {isCheckingPlan ? <LoaderCircle className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
-                  套餐复查
-                </Button>
-                <Button
-                  variant="ghost"
                   className="h-8 rounded-lg px-3 text-emerald-600 hover:bg-emerald-50 hover:text-emerald-700"
                   onClick={() => void handleExtractLink(selectedTokens)}
                   disabled={selectedTokens.length === 0 || isExtractingLink}
@@ -1515,39 +1071,6 @@ function AccountsPageContent() {
                 >
                   {isExtractingLink ? <LoaderCircle className="size-4 animate-spin" /> : <Link2 className="size-4" />}
                   Plus 提链
-                </Button>
-                <Button
-                  variant="ghost"
-                  className="h-8 rounded-lg px-3 text-amber-600 hover:bg-amber-50 hover:text-amber-700"
-                  onClick={() => void handleReLogin(selectedTokens)}
-                  disabled={selectedTokens.length === 0 || isRelogining}
-                  title="尝试密码登录恢复账号"
-                >
-                  {isRelogining ? <LoaderCircle className="size-4 animate-spin" /> : <LogIn className="size-4" />}
-                  尝试恢复异常账号
-                </Button>
-                <Select value={selectedCpaPoolId || "none"} onValueChange={(value) => setSelectedCpaPoolId(value === "none" ? "" : value)}>
-                  <SelectTrigger className="h-8 w-[180px] rounded-lg border-stone-200 bg-white text-xs">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">选择 CPA 连接</SelectItem>
-                    {cpaPools.map((pool) => (
-                      <SelectItem key={pool.id} value={pool.id}>
-                        {pool.name || pool.base_url}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Button
-                  variant="ghost"
-                  className="h-8 rounded-lg px-3 text-blue-600 hover:bg-blue-50 hover:text-blue-700"
-                  onClick={() => void handleCodexOAuthRetry(selectedTokens)}
-                  disabled={selectedTokens.length === 0 || isCodexRetrying || !selectedCpaPoolId}
-                  title="为所选账号生成 Codex OAuth CPA 授权地址"
-                >
-                  {isCodexRetrying ? <LoaderCircle className="size-4 animate-spin" /> : <Link2 className="size-4" />}
-                  Codex 补跑
                 </Button>
                 <Button
                   variant="ghost"
@@ -1663,60 +1186,6 @@ function AccountsPageContent() {
                             {account.note ? (
                               <div className="max-w-[220px] truncate rounded-md bg-stone-100 px-1.5 py-0.5 text-stone-600" title={account.note}>
                                 {account.note}
-                              </div>
-                            ) : null}
-                            {account.chatgpt_plan_check?.status ? (
-                              <div className="flex flex-wrap items-center gap-1">
-                                <Badge
-                                  variant={account.chatgpt_plan_check.status === "failed" ? "danger" : account.chatgpt_plan_check.status === "success" ? "success" : "outline"}
-                                  className="rounded-md px-1.5 py-0 text-[10px] normal-case tracking-normal"
-                                  title={String(account.chatgpt_plan_check.error || account.chatgpt_plan_check.checked_at || account.chatgpt_plan_check.job_id || "")}
-                                >
-                                  套餐 {account.chatgpt_plan_check.status}
-                                </Badge>
-                                {account.chatgpt_plan_check.current_plan_type ? (
-                                  <Badge variant="secondary" className="rounded-md px-1.5 py-0 text-[10px] normal-case tracking-normal">
-                                    {String(account.chatgpt_plan_check.current_plan_type)}
-                                  </Badge>
-                                ) : null}
-                                {account.chatgpt_plan_check.plus_trial_eligible ? (
-                                  <Badge variant="info" className="rounded-md px-1.5 py-0 text-[10px] normal-case tracking-normal">
-                                    Plus trial
-                                  </Badge>
-                                ) : null}
-                              </div>
-                            ) : null}
-                            {account.codex_oauth?.status ? (
-                              <div className="flex items-center gap-1">
-                                <Badge variant={account.codex_oauth.status === "failed" ? "danger" : "outline"} className="rounded-md px-1.5 py-0 text-[10px] normal-case tracking-normal">
-                                  Codex {account.codex_oauth.status}
-                                </Badge>
-                                {account.codex_oauth.auth_url ? (
-                                  <button
-                                    type="button"
-                                    className="rounded p-1 text-stone-400 transition hover:bg-stone-100 hover:text-stone-700"
-                                    onClick={() => {
-                                      void navigator.clipboard.writeText(account.codex_oauth?.auth_url || "");
-                                      toast.success("Codex 授权地址已复制");
-                                    }}
-                                    title="复制 Codex OAuth 授权地址"
-                                  >
-                                    <Copy className="size-3" />
-                                  </button>
-                                ) : null}
-                                {account.codex_oauth.status === "pending_callback" ? (
-                                  <button
-                                    type="button"
-                                    className="rounded p-1 text-stone-400 transition hover:bg-stone-100 hover:text-stone-700"
-                                    onClick={() => {
-                                      setCodexCallbackAccount(account);
-                                      setCodexCallbackInput("");
-                                    }}
-                                    title="提交 Codex OAuth callback"
-                                  >
-                                    <Send className="size-3" />
-                                  </button>
-                                ) : null}
                               </div>
                             ) : null}
                             {account.extract_link?.status ? (

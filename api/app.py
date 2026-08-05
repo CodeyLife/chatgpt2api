@@ -10,9 +10,7 @@ from fastapi.responses import FileResponse
 from api import accounts, ai, codex, image_tasks, register, system
 from api.errors import install_exception_handlers
 from api.support import resolve_web_asset, start_limited_account_watcher
-from services.account_plan_check_service import account_plan_check_service
 from services.backup_service import backup_service
-from services.codex_oauth_retry_service import codex_oauth_retry_service
 from services.config import config
 from services.extract_link_service import extract_link_service
 from services.image_service import start_image_cleanup_scheduler
@@ -28,9 +26,7 @@ def create_app() -> FastAPI:
         cleanup_thread = start_image_cleanup_scheduler(stop_event)
         backup_service.start()
         config.cleanup_old_images()
-        account_plan_check_service.recover_interrupted()
         extract_link_service.recover_interrupted()
-        codex_oauth_retry_service.recover_interrupted()
         try:
             yield
         finally:

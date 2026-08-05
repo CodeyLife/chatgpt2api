@@ -13,22 +13,16 @@ from pathlib import Path
 from typing import Any
 
 from services.account_service import account_service
-from services.codex_oauth_retry_service import codex_oauth_retry_service
 from services.config import DATA_DIR
 from services.cpa_service import cpa_config, list_remote_files, request_codex_auth_url
 from utils.helper import anonymize_token
 
 
 CODEX_CREDENTIAL_DIR = DATA_DIR / "codex_credentials"
-CODEX_LOG_DIR = DATA_DIR / "codex_retry_logs"
 CODEX_INDEX_FILE = CODEX_CREDENTIAL_DIR / "index.json"
 
 
 class CodexManagementError(RuntimeError):
-    pass
-
-
-class CodexRetryStopped(RuntimeError):
     pass
 
 
@@ -56,14 +50,10 @@ def _json_bytes(data: dict[str, Any]) -> bytes:
 
 
 class CodexManagementService:
-    def __init__(self, *, accounts=account_service, oauth_retry=codex_oauth_retry_service, pools=cpa_config) -> None:
+    def __init__(self, *, accounts=account_service, pools=cpa_config) -> None:
         self.accounts = accounts
-        self.oauth_retry = oauth_retry
         self.pools = pools
         self._lock = threading.RLock()
-        self._retrying: set[str] = set()
-        self._stop_requested: set[str] = set()
-        self._running_threads: dict[str, int] = {}
 
     def list(self) -> dict[str, Any]:
         entries = self._load_index()
@@ -78,7 +68,6 @@ class CodexManagementService:
                     **entry,
                     "codex_status": codex_oauth.get("status") or entry.get("codex_status") or "",
                     "codex_error": codex_oauth.get("error") or entry.get("codex_error") or "",
-                    "retrying": self.is_retrying(email),
                     "account_present": bool(account),
                 }
             )
@@ -88,25 +77,9 @@ class CodexManagementService:
                 "total": len(accounts),
                 "exported": exported,
                 "unexported": max(0, len(accounts) - exported),
-                "retrying": len(self._retrying),
             },
             "accounts": accounts,
         }
-
-    def log_path(self, email: str) -> Path:
-        CODEX_LOG_DIR.mkdir(parents=True, exist_ok=True)
-        return CODEX_LOG_DIR / f"codex-retry-{_safe_email_slug(email)}.log"
-
-    def read_retry_log(self, email: str, *, max_bytes: int = 50_000) -> dict[str, Any]:
-        path = self.log_path(email)
-        if not path.exists():
-            return {"ok": True, "log": "", "running": self.is_retrying(email)}
-        size = path.stat().st_size
-        with path.open("rb") as handle:
-            if size > max_bytes:
-                handle.seek(size - max_bytes)
-            content = handle.read().decode("utf-8", errors="replace")
-        return {"ok": True, "log": content, "running": self.is_retrying(email)}
 
     def save_credential(
         self,
@@ -246,248 +219,12 @@ class CodexManagementService:
             raise CodexManagementError("没有成功从 CPA 下载任何凭证")
         return buf.getvalue(), f"codex-cpa-bulk-{datetime.now().strftime('%Y%m%d-%H%M%S')}.zip", "application/zip"
 
-    def reserve(self, email: str) -> bool:
-        key = str(email or "").strip().lower()
-        if not key:
-            return False
-        with self._lock:
-            if key in self._retrying:
-                return False
-            self._stop_requested.discard(key)
-            self._retrying.add(key)
-            return True
-
-    def release(self, email: str) -> None:
-        key = str(email or "").strip().lower()
-        with self._lock:
-            self._retrying.discard(key)
-            self._running_threads.pop(key, None)
-            self._stop_requested.discard(key)
-
-    def is_retrying(self, email: str) -> bool:
-        with self._lock:
-            return str(email or "").strip().lower() in self._retrying
-
-    def request_stop(self, email: str) -> dict[str, Any]:
-        key = str(email or "").strip().lower()
-        if not key:
-            return {"ok": False, "error": "email 为空", "status": 400}
-        account = self._account_by_email(email)
-        if account is None:
-            return {"ok": False, "error": f"账号不存在: {email}", "status": 404}
-        with self._lock:
-            running = key in self._retrying
-            self._stop_requested.add(key)
-        self._update_codex_status(account, "stopped", "用户手动停止 Codex 补跑")
-        self._append_log(email, "[WARNING] [Codex 补跑] 用户手动停止，已发送停止信号")
-        if not running:
-            return {"ok": True, "message": "未发现运行中的补跑，已标记为已停止", "state": "stopped", "running": False}
-        return {"ok": True, "message": "已发送停止信号，当前步骤结束后停止", "state": "stopped", "running": True, "injected": False}
-
-    def reset_retrying(self, email: str, status: str = "failed") -> dict[str, Any]:
-        account = self._account_by_email(email)
-        if account is None:
-            raise CodexManagementError(f"账号不存在: {email}")
-        raw_status = str(status or "failed").strip().lower()
-        if raw_status in {"", "none", "null", "clear"}:
-            raw_status = "empty"
-        if raw_status not in {"failed", "skipped", "empty"}:
-            raise CodexManagementError("status 仅支持 failed/skipped/empty")
-        new_status = "" if raw_status == "empty" else raw_status
-        self._update_codex_status(account, new_status, None if raw_status == "empty" else "用户手动重置补跑中状态")
-        self.release(email)
-        self._append_log(email, f"[WARNING] [Codex 补跑] 用户手动重置补跑中状态，当前状态={new_status or '空'}")
-        return {"ok": True, "message": "已重置补跑中状态", "status": new_status}
-
-    def retry(self, email: str, *, provider: str = "", cpa_pool_id: str = "", clear_log: bool = True) -> dict[str, Any]:
-        account = self._account_by_email(email)
-        if account is None:
-            raise CodexManagementError(f"账号不存在: {email}")
-        if not self.reserve(email):
-            raise CodexManagementError("该账号正在补跑中，请稍候")
-        if clear_log:
-            self.log_path(email).write_text("", encoding="utf-8")
-        self._update_codex_status(account, "retrying", None)
-        thread = threading.Thread(
-            target=self.run_worker,
-            kwargs={"email": email, "provider": provider, "cpa_pool_id": cpa_pool_id, "clear_log": False},
-            name=f"codex-retry-{email}",
-            daemon=True,
-        )
-        thread.start()
-        return {"ok": True, "message": "已在后台开始补跑，稍后刷新查看"}
-
-    def retry_bulk(self, emails: list[str], *, workers: int = 1, provider: str = "", cpa_pool_id: str = "") -> dict[str, Any]:
-        targets = [str(item or "").strip() for item in emails if str(item or "").strip()]
-        if not targets:
-            raise CodexManagementError("emails 必须是非空数组")
-        if len(targets) > 500:
-            raise CodexManagementError("单次最多选择 500 个账号")
-        workers = max(1, min(16, int(workers or 1)))
-        selected: list[dict[str, str]] = []
-        skipped: list[dict[str, str]] = []
-        seen: set[str] = set()
-        for email in targets:
-            key = email.lower()
-            if key in seen:
-                continue
-            seen.add(key)
-            account = self._account_by_email(email)
-            if account is None:
-                skipped.append({"email": email, "reason": "账号不存在"})
-                continue
-            if not self.reserve(email):
-                skipped.append({"email": email, "reason": "正在补跑中"})
-                continue
-            self._update_codex_status(account, "retrying", None)
-            self.log_path(email).write_text(f"{datetime.now().strftime('%H:%M:%S')} [INFO] [Codex 批量补跑] 已加入批量任务\n", encoding="utf-8")
-            selected.append({"email": email})
-        if not selected:
-            raise CodexManagementError("没有可补跑的账号")
-        batch_id = datetime.now().strftime("%Y%m%d-%H%M%S")
-
-        def runner() -> None:
-            with ThreadPoolExecutor(max_workers=workers, thread_name_prefix=f"codex-bulk-{batch_id}") as executor:
-                futures = [
-                    executor.submit(self.run_worker, email=item["email"], provider=provider, cpa_pool_id=cpa_pool_id, batch_label=f"{batch_id} #{index}/{len(selected)}", clear_log=False)
-                    for index, item in enumerate(selected, 1)
-                ]
-                for future in as_completed(futures):
-                    try:
-                        future.result()
-                    except Exception:
-                        pass
-
-        threading.Thread(target=runner, name=f"codex-bulk-dispatch-{batch_id}", daemon=True).start()
-        return {"ok": True, "message": f"已开始批量补跑 {len(selected)} 个账号，并发 {workers}", "started": selected, "started_count": len(selected), "skipped": skipped, "batch_id": batch_id}
-
-    def run_worker(self, *, email: str, provider: str = "", cpa_pool_id: str = "", batch_label: str | None = None, clear_log: bool = False) -> dict[str, Any]:
-        key = str(email or "").strip().lower()
-        result: dict[str, Any] = {"ok": False, "status": "failed", "message": "Codex 补跑未返回结果"}
-        if clear_log:
-            self.log_path(email).write_text("", encoding="utf-8")
-        try:
-            with self._lock:
-                self._running_threads[key] = threading.get_ident()
-            self._check_stop(email)
-            account = self._account_by_email(email)
-            if account is None:
-                raise CodexManagementError(f"账号不存在: {email}")
-            token = str(account.get("access_token") or "").strip()
-            if not token:
-                raise CodexManagementError("账号 access_token 为空")
-            selected_provider = str(provider or self._default_browser_provider()).strip() or "browser_use"
-            pool = self._resolve_pool(cpa_pool_id or str((account.get("codex_oauth") or {}).get("pool_id") or ""))
-            self._append_log(email, f"[INFO] [Codex 补跑] 开始 email={email}")
-            if batch_label:
-                self._append_log(email, f"[INFO] [Codex 补跑] 批量任务 {batch_label}")
-            codex_oauth = account.get("codex_oauth") if isinstance(account.get("codex_oauth"), dict) else {}
-            if not str(codex_oauth.get("auth_url") or "").strip():
-                auth = request_codex_auth_url(pool)
-                codex_oauth = {
-                    "status": "pending_callback",
-                    "provider": "cpa",
-                    "pool_id": str(pool.get("id") or ""),
-                    "auth_url": str(auth.get("auth_url") or ""),
-                    "state": str(auth.get("state") or ""),
-                    "created_at": _now(),
-                    "updated_at": _now(),
-                }
-                self.accounts.update_account(token, {"codex_oauth": codex_oauth}, quiet=True)
-                self._append_log(email, "[INFO] [Codex 补跑] 已生成 CPA Codex 授权地址")
-            self._check_stop(email)
-            self._append_log(email, f"[INFO] [Codex 补跑] 使用浏览器驱动捕获 callback provider={selected_provider}")
-            result = self.oauth_retry.capture_callback(token, selected_provider, cpa_pool_id=str(pool.get("id") or ""))
-            auth_json = result.get("auth_json") if isinstance(result.get("auth_json"), dict) else {}
-            filename = ""
-            if auth_json:
-                filename = self.save_credential(auth_json, source="cpa", cpa_pool_id=str(pool.get("id") or ""))
-                self._append_log(email, f"[INFO] [Codex 补跑] 已保存凭证文件 {filename}")
-            self._append_log(email, "[INFO] [Codex 补跑] 成功")
-            return {**result, "status": "success", "credential_filename": filename}
-        except CodexRetryStopped as exc:
-            result = {"ok": False, "status": "stopped", "message": str(exc) or "用户手动停止 Codex 补跑"}
-            account = self._account_by_email(email)
-            if account:
-                self._update_codex_status(account, "stopped", result["message"])
-            self._append_log(email, f"[WARNING] [Codex 补跑] 已停止: {result['message']}")
-            return result
-        except Exception as exc:
-            result = {"ok": False, "status": "failed", "message": f"{type(exc).__name__}: {str(exc)[:500]}"}
-            account = self._account_by_email(email)
-            if account:
-                self._update_codex_status(account, "failed", result["message"])
-            self._append_log(email, f"[ERROR] [Codex 补跑] 失败: {result['message']}")
-            return result
-        finally:
-            self.release(email)
-
-    def finish_callback_and_save(self, token: str, callback_url: str, pool_id: str = "") -> dict[str, Any]:
-        result = self.oauth_retry.finish_callback(token, callback_url, pool_id)
-        auth_json = result.get("auth_json") if isinstance(result.get("auth_json"), dict) else {}
-        if auth_json:
-            filename = self.save_credential(auth_json, source="cpa", cpa_pool_id=str(result.get("pool_id") or pool_id or ""))
-            result["credential_filename"] = filename
-        return result
-
-    def capture_callback_and_save(
-        self,
-        token: str,
-        provider: str,
-        *,
-        cpa_pool_id: str = "",
-        timeout_seconds: int | None = None,
-    ) -> dict[str, Any]:
-        result = self.oauth_retry.capture_callback(
-            token,
-            provider,
-            cpa_pool_id=cpa_pool_id,
-            timeout_seconds=timeout_seconds,
-        )
-        auth_json = result.get("auth_json") if isinstance(result.get("auth_json"), dict) else {}
-        if auth_json:
-            filename = self.save_credential(auth_json, source="cpa", cpa_pool_id=str(result.get("pool_id") or cpa_pool_id or ""))
-            result["credential_filename"] = filename
-        return result
-
     def save_cpa_callback_result(self, result: dict[str, Any], pool_id: str = "") -> dict[str, Any]:
         auth_json = result.get("auth_json") if isinstance(result.get("auth_json"), dict) else {}
         if auth_json:
             filename = self.save_credential(auth_json, source="cpa", cpa_pool_id=str(pool_id or ""))
             result["credential_filename"] = filename
         return result
-
-    def _account_by_email(self, email: str) -> dict[str, Any] | None:
-        target = str(email or "").strip().lower()
-        if not target:
-            return None
-        for account in self.accounts.list_accounts():
-            if str(account.get("email") or "").strip().lower() == target:
-                return account
-        return None
-
-    def _update_codex_status(self, account: dict[str, Any], status: str, error: str | None) -> None:
-        token = str(account.get("access_token") or "").strip()
-        if not token:
-            return
-        current = account.get("codex_oauth") if isinstance(account.get("codex_oauth"), dict) else {}
-        updates = {**current, "status": status, "updated_at": _now()}
-        if error is None:
-            updates.pop("error", None)
-        else:
-            updates["error"] = error
-        self.accounts.update_account(token, {"codex_oauth": updates}, quiet=True)
-
-    def _append_log(self, email: str, message: str) -> None:
-        path = self.log_path(email)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with path.open("a", encoding="utf-8") as handle:
-            handle.write(f"{datetime.now().strftime('%H:%M:%S')} {message}\n")
-
-    def _check_stop(self, email: str) -> None:
-        with self._lock:
-            if str(email or "").strip().lower() in self._stop_requested:
-                raise CodexRetryStopped("用户手动停止 Codex 补跑")
 
     def _resolve_pool(self, pool_id: str = "") -> dict[str, Any]:
         candidate = str(pool_id or "").strip()
@@ -511,9 +248,6 @@ class CodexManagementService:
         if not pools:
             raise CodexManagementError("CPA pool not configured")
         return pools[0]
-
-    def _default_browser_provider(self) -> str:
-        return "browser_use"
 
     def _fetch_remote_auth_text(self, pool: dict[str, Any], file_name: str) -> tuple[str, str]:
         from urllib.parse import urlencode

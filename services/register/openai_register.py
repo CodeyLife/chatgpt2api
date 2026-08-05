@@ -1115,10 +1115,7 @@ def worker(index: int) -> dict:
                 f"registration driver {driver_name} does not return ChatGPT Web session accessToken"
             )
             step(index, "当前注册驱动不支持 Codex Agent Identity，已跳过生成并保留基础账号", "yellow")
-        if config.get("codex_oauth_enabled") and config.get("codex_oauth_via_cpa", True):
-            _attach_codex_oauth_cpa_pending(result, index)
         account_service.add_account_items([result])
-        _enqueue_registration_plan_check(access_token, result, index)
         _attach_flow_trigger_result(access_token, result, index)
         refresh_result = account_service.verify_new_accounts([access_token])
         if refresh_result.get("errors"):
@@ -1145,51 +1142,6 @@ def worker(index: int) -> dict:
     finally:
         if registrar is not None:
             registrar.close(index)
-
-
-def _enqueue_registration_plan_check(access_token: str, result: dict, index: int) -> None:
-    try:
-        from services.account_plan_check_service import account_plan_check_service
-
-        queued = account_plan_check_service.start(
-            [access_token],
-            proxy=str(result.get("proxy") or config.get("proxy") or ""),
-            trigger="registration_auto",
-        )
-        if int(queued.get("accepted") or 0) > 0:
-            step(index, "已提交注册后套餐复查任务")
-        elif queued.get("skipped_items"):
-            step(index, f"注册后套餐复查未入队: {queued.get('skipped_items')}", "yellow")
-    except Exception as exc:
-        step(index, f"注册后套餐复查入队失败，账号仍会保存: {exc}", "yellow")
-
-
-def _attach_codex_oauth_cpa_pending(result: dict, index: int) -> None:
-    pool_id = str(config.get("codex_oauth_cpa_pool_id") or "").strip()
-    if not pool_id:
-        result["codex_oauth_error"] = "codex_oauth_cpa_pool_id is not configured"
-        step(index, "Codex OAuth 已启用，但未配置 CPA 连接，已跳过待授权地址生成", "yellow")
-        return
-    try:
-        from services.cpa_service import cpa_config, request_codex_auth_url
-
-        pool = cpa_config.get_pool(pool_id)
-        if pool is None:
-            raise RuntimeError(f"CPA pool not found: {pool_id}")
-        auth = request_codex_auth_url(pool)
-    except Exception as exc:
-        result["codex_oauth_error"] = str(exc)
-        step(index, f"Codex OAuth CPA 授权地址生成失败，账号仍会保存: {exc}", "yellow")
-        return
-    result["codex_oauth"] = {
-        "status": "pending_callback",
-        "provider": "cpa",
-        "pool_id": pool_id,
-        "auth_url": auth.get("auth_url", ""),
-        "state": auth.get("state", ""),
-        "created_at": datetime.now(timezone.utc).isoformat(),
-    }
-    step(index, "Codex OAuth CPA 授权地址已生成，账号记录已保存 pending_callback")
 
 
 def _attach_flow_trigger_result(access_token: str, result: dict, index: int) -> None:

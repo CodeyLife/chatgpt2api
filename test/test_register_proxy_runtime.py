@@ -440,48 +440,6 @@ class RegisterProxyRuntimeTests(unittest.TestCase):
         self.assertNotIn("has_api_key", service._config["browser_use"])
         self.assertNotIn("has_h_admin_auth_code", service._config["sms"])
 
-    def test_attach_codex_oauth_cpa_pending_adds_account_metadata(self):
-        result = {"email": "new@example.com", "access_token": "access-token"}
-
-        with (
-            patch.object(openai_register, "config", {**openai_register.config, "codex_oauth_cpa_pool_id": "pool-1"}),
-            patch("services.cpa_service.cpa_config", SimpleNamespace(get_pool=lambda pool_id: {"id": pool_id, "base_url": "https://cpa.example"})),
-            patch(
-                "services.cpa_service.request_codex_auth_url",
-                return_value={"auth_url": "https://auth.openai.com/oauth?state=state-1", "state": "state-1"},
-            ),
-        ):
-            openai_register._attach_codex_oauth_cpa_pending(result, 1)
-
-        self.assertEqual(result["codex_oauth"]["status"], "pending_callback")
-        self.assertEqual(result["codex_oauth"]["provider"], "cpa")
-        self.assertEqual(result["codex_oauth"]["pool_id"], "pool-1")
-        self.assertEqual(result["codex_oauth"]["state"], "state-1")
-        self.assertNotIn("codex_oauth_error", result)
-
-    def test_attach_codex_oauth_cpa_pending_keeps_account_when_pool_missing(self):
-        result = {"email": "new@example.com", "access_token": "access-token"}
-
-        with patch.object(openai_register, "config", {**openai_register.config, "codex_oauth_cpa_pool_id": ""}):
-            openai_register._attach_codex_oauth_cpa_pending(result, 1)
-
-        self.assertEqual(result["codex_oauth_error"], "codex_oauth_cpa_pool_id is not configured")
-        self.assertNotIn("codex_oauth", result)
-
-    def test_enqueue_registration_plan_check_uses_registration_auto_trigger(self):
-        calls = []
-        fake_service = SimpleNamespace(
-            start=lambda access_tokens, proxy="", trigger="manual": calls.append(
-                {"access_tokens": access_tokens, "proxy": proxy, "trigger": trigger}
-            )
-            or {"accepted": 1, "skipped_items": []}
-        )
-
-        with patch.dict("sys.modules", {"services.account_plan_check_service": SimpleNamespace(account_plan_check_service=fake_service)}):
-            openai_register._enqueue_registration_plan_check("access-token", {"proxy": "http://proxy"}, 1)
-
-        self.assertEqual(calls, [{"access_tokens": ["access-token"], "proxy": "http://proxy", "trigger": "registration_auto"}])
-
     def test_worker_saves_registered_account_with_codex_agent_identity_when_enabled(self):
         saved_items = []
 
