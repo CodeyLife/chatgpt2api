@@ -195,7 +195,8 @@ class OpenAIBackendAPI:
         self.account = account_service.get_account(self.access_token) if self.access_token else {}
         self.account = self.account if isinstance(self.account, dict) else {}
         # 还原注册时持久化的浏览器 profile，保证 API 调用指纹与注册时一致
-        from utils.fingerprint import get_profile_by_name
+        from utils.fingerprint import get_profile_by_name, build_navigate_headers
+        self._build_navigate_headers = build_navigate_headers
         profile_name = str(self.account.get("fingerprint_profile") or "").strip()
         self._profile = get_profile_by_name(profile_name)
         self.fp = self._build_fp()
@@ -405,20 +406,11 @@ class OpenAIBackendAPI:
         return result
 
     def _bootstrap_headers(self) -> Dict[str, str]:
-        """构造首页预热请求头。"""
-        return {
-            "User-Agent": self.user_agent,
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
-            "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
-            "Sec-Ch-Ua": self.session.headers["Sec-Ch-Ua"],
-            "Sec-Ch-Ua-Mobile": self.session.headers["Sec-Ch-Ua-Mobile"],
-            "Sec-Ch-Ua-Platform": self.session.headers["Sec-Ch-Ua-Platform"],
-            "Sec-Fetch-Dest": "document",
-            "Sec-Fetch-Mode": "navigate",
-            "Sec-Fetch-Site": "none",
-            "Sec-Fetch-User": "?1",
-            "Upgrade-Insecure-Requests": "1",
-        }
+        """构造首页预热请求头，使用完整的导航头以通过 Cloudflare WAF 检测。"""
+        headers = self._build_navigate_headers(self._profile)
+        # bootstrap 是首次导航（无来源页），真实浏览器发送 sec-fetch-site: none
+        headers["sec-fetch-site"] = "none"
+        return headers
 
     def _build_requirements(self, data: Dict[str, Any], source_p: str = "") -> ChatRequirements:
         """把 sentinel 响应整理成后续对话需要的 token 集合。"""
@@ -2731,16 +2723,28 @@ class OpenAIBackendAPI:
                 pass
 
     def _bootstrap(self) -> None:
-        """预热首页，并提取 PoW 相关脚本引用。"""
-        response = self.session.get(
-            self.base_url + "/",
-            headers=self._bootstrap_headers(),
-            timeout=30,
-        )
-        ensure_ok(response, "bootstrap")
-        self.pow_script_sources, self.pow_data_build = parse_pow_resources(response.text)
-        if not self.pow_script_sources:
-            self.pow_script_sources = [DEFAULT_POW_SCRIPT]
+        """预热首页，并提取 PoW 相关脚本引用。
+
+        包含 403 重试逻辑：Cloudflare WAF 可能间歇性拦截，遇 403 时
+        线性退避重试最多 3 次，避免单次抖动导致整个请求失败。
+        """
+        max_retries = 3
+        for attempt in range(max_retries):
+            response = self.session.get(
+                self.base_url + "/",
+                headers=self._bootstrap_headers(),
+                timeout=30,
+            )
+            if response.status_code == 403 and attempt < max_retries - 1:
+                logger.warning("bootstrap 403 (attempt %d/%d), retrying...", attempt + 1, max_retries)
+                response.close()
+                time.sleep(2 * (attempt + 1))
+                continue
+            ensure_ok(response, "bootstrap")
+            self.pow_script_sources, self.pow_data_build = parse_pow_resources(response.text)
+            if not self.pow_script_sources:
+                self.pow_script_sources = [DEFAULT_POW_SCRIPT]
+            return
 
     def _get_chat_requirements(self) -> ChatRequirements:
         """获取当前模式对话所需的 sentinel token（prepare + finalize 两步流程）。"""

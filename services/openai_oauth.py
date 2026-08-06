@@ -7,9 +7,9 @@ platform_auth0_client = "eyJuYW1lIjoiYXV0aDAtc3BhLWpzIiwidmVyc2lvbiI6IjEuMjEuMCJ
 user_agent = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
     "AppleWebKit/537.36 (KHTML, like Gecko) "
-    "Chrome/152.0.0.0 Safari/537.36"
+    "Chrome/146.0.0.0 Safari/537.36"
 )
-sec_ch_ua = '"Google Chrome";v="152", "Not?A_Brand";v="8", "Chromium";v="152"'
+sec_ch_ua = '"Google Chrome";v="146", "Not?A_Brand";v="8", "Chromium";v="146"'
 
 common_headers = {
     "accept": "application/json",

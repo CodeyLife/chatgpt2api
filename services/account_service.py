@@ -36,7 +36,7 @@ class AccountService:
     _OAUTH_USER_AGENT = (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
         "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/152.0.0.0 Safari/537.36"
+        "Chrome/146.0.0.0 Safari/537.36"
     )
 
     # 刷新进度追踪
@@ -280,7 +280,6 @@ class AccountService:
         normalized["default_model_slug"] = normalized.get("default_model_slug") or None
         normalized["restore_at"] = normalized.get("restore_at") or None
         normalized["success"] = int(normalized.get("success") or 0)
-        normalized["fail"] = int(normalized.get("fail") or 0)
         normalized["invalid_count"] = int(normalized.get("invalid_count") or 0)
         normalized["last_used_at"] = normalized.get("last_used_at")
         normalized["last_invalid_at"] = normalized.get("last_invalid_at") or None
@@ -1043,29 +1042,6 @@ class AccountService:
                 return
             next_item = dict(current)
             next_item["last_used_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            next_item["fail"] = 0  # 成功后重置失败计数
-            account = self._normalize_account(next_item)
-            if account is None:
-                return
-            self._accounts[access_token] = account
-            self._save_accounts()
-
-    def mark_text_failed(self, access_token: str, event: str = "text_stream") -> None:
-        """记录文本对话失败，累加 fail 计数。
-
-        仅用于追踪，不自动标记为"异常"——因为 403 通常是 IP 级封锁，
-        标记账号无意义且会造成"标记→刷新→恢复→再标记"的死循环。
-        """
-        if not access_token:
-            return
-        with self._lock:
-            access_token = self._resolve_access_token_locked(access_token)
-            current = self._accounts.get(access_token)
-            if current is None:
-                return
-            next_item = dict(current)
-            next_item["last_used_at"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            next_item["fail"] = int(next_item.get("fail") or 0) + 1
             account = self._normalize_account(next_item)
             if account is None:
                 return
@@ -1408,8 +1384,6 @@ class AccountService:
                     next_item["restore_at"] = next_item.get("restore_at") or None
                 elif next_item.get("status") == "限流" and int(next_item.get("quota") or 0) > 0:
                     next_item["status"] = "正常"
-            else:
-                next_item["fail"] = int(next_item.get("fail") or 0) + 1
             account = self._normalize_account(next_item)
             if account is None:
                 return None
@@ -1700,7 +1674,6 @@ class AccountService:
         total_quota = sum(max(0, int(a.get("quota") or 0)) for a in items if a.get("status") == "正常")
         unlimited = sum(1 for a in items if a.get("status") == "正常" and bool(a.get("image_quota_unknown")))
         total_success = sum(int(a.get("success") or 0) for a in items)
-        total_fail = sum(int(a.get("fail") or 0) for a in items)
         by_type = {}
         for a in items:
             t = a.get("type", "unknown")
@@ -1715,7 +1688,6 @@ class AccountService:
             "total_quota": total_quota,
             "unlimited_quota_count": unlimited,
             "total_success": total_success,
-            "total_fail": total_fail,
             "by_type": by_type,
         }
 

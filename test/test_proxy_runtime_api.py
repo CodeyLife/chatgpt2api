@@ -74,7 +74,6 @@ class FakeAccountService:
             "abnormal": 0,
             "disabled": 0,
             "total_success": 0,
-            "total_fail": 0,
             "by_type": {"web": 1},
         }
 

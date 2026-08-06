@@ -367,7 +367,7 @@ td{{padding:8px 12px;border-top:1px solid #2a2d3a;font-size:14px}}tr:hover td{{b
 <div class="card"><div class="label">限流</div><div class="value yellow">{stats['limited']}</div></div>
 <div class="card"><div class="label">异常</div><div class="value red">{stats['abnormal']}</div></div>
 <div class="card"><div class="label">禁用</div><div class="value">{stats['disabled']}</div></div>
-<div class="card"><div class="label">成功/失败</div><div class="value">{stats['total_success']}<span style="font-size:18px;color:#94a3b8">/</span><span class="red">{stats['total_fail']}</span></div></div>
+<div class="card"><div class="label">成功</div><div class="value green">{stats['total_success']}</div></div>
 </div>
 <h2 style="margin-bottom:12px;font-size:16px">账号类型分布</h2>
 <table>

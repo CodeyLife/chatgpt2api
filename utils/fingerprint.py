@@ -70,12 +70,12 @@ def _sec_ch_ua_full_version_list(major: int) -> str:
 # TODO P2: 以下 profile 字段（Chrome 大版本、平台版本、分辨率、CPU 数、语言）均来自
 # 2026-08 成功注册样本的抓包，属样本驱动决策。样本扩充或上游策略变化后需参数化为
 # 可配置项，避免单点漂移。
-_PROFILE_CHROME152_WIN = BrowserProfile(
-    name="chrome152_win",
-    impersonate="chrome",
-    user_agent=_chrome_ua(152, "Windows"),
-    sec_ch_ua=_sec_ch_ua(152),
-    sec_ch_ua_full_version_list=_sec_ch_ua_full_version_list(152),
+_PROFILE_CHROME146_WIN = BrowserProfile(
+    name="chrome146_win",
+    impersonate="chrome146",
+    user_agent=_chrome_ua(146, "Windows"),
+    sec_ch_ua=_sec_ch_ua(146),
+    sec_ch_ua_full_version_list=_sec_ch_ua_full_version_list(146),
     sec_ch_ua_platform='"Windows"',
     sec_ch_ua_platform_version='"10.0.0"',
     sec_ch_ua_arch='"x86_64"',
@@ -86,14 +86,14 @@ _PROFILE_CHROME152_WIN = BrowserProfile(
 )
 
 PROFILES: list[BrowserProfile] = [
-    _PROFILE_CHROME152_WIN,
+    _PROFILE_CHROME146_WIN,
 ]
 
 # name -> profile 索引表
 _PROFILE_MAP: dict[str, BrowserProfile] = {p.name: p for p in PROFILES}
 
 # 默认 Profile（用于新流程兜底）
-DEFAULT_PROFILE: BrowserProfile = _PROFILE_CHROME152_WIN
+DEFAULT_PROFILE: BrowserProfile = _PROFILE_CHROME146_WIN
 
 
 def pick_profile(seed: str = "") -> BrowserProfile:

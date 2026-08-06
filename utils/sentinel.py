@@ -94,9 +94,9 @@ class SentinelTokenGenerator:
 DEFAULT_SENTINEL_USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
     "AppleWebKit/537.36 (KHTML, like Gecko) "
-    "Chrome/152.0.0.0 Safari/537.36"
+    "Chrome/146.0.0.0 Safari/537.36"
 )
-DEFAULT_SENTINEL_SEC_CH_UA = '"Chromium";v="152", "Google Chrome";v="152", "Not/A)Brand";v="99"'
+DEFAULT_SENTINEL_SEC_CH_UA = '"Chromium";v="146", "Google Chrome";v="146", "Not/A)Brand";v="99"'
 
 
 def _first_text(data: dict, *keys: str) -> str:

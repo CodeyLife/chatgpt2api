@@ -56,7 +56,7 @@ const DEFAULT_PROXY_RUNTIME: ProxyRuntimeSettings = {
     mode: "none",
     cf_cookies: "",
     cf_clearance: "",
-    user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36",
+    user_agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36",
     browser: "chrome",
     flaresolverr_url: "",
     timeout_sec: 60,
