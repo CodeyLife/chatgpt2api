@@ -219,7 +219,7 @@ class OpenAIBackendAPI:
             "User-Agent": self.user_agent,
             "Origin": self.base_url,
             "Referer": self.base_url + "/",
-            "Accept-Language": self._profile.accept_language,
+            "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8,en-US;q=0.7",
             "Cache-Control": "no-cache",
             "Pragma": "no-cache",
             "Priority": "u=1, i",
