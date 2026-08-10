@@ -109,7 +109,7 @@ class RegisterProxyRuntimeTests(unittest.TestCase):
         self.assertIs(session, created[0])
         self.assertEqual(fake_proxy.session_kwargs_calls[0]["proxy"], "http://legacy-register.example:8080")
         self.assertTrue(fake_proxy.session_kwargs_calls[0]["upstream"])
-        self.assertEqual(fake_proxy.session_kwargs_calls[0]["impersonate"], "chrome")
+        self.assertEqual(fake_proxy.session_kwargs_calls[0]["impersonate"], "chrome146")
         self.assertFalse(fake_proxy.session_kwargs_calls[0]["verify"])
         self.assertEqual(session.kwargs["proxy"], "http://runtime.example:8118")
 

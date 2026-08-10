@@ -464,7 +464,7 @@ class AccountService:
     def _request_access_token_refresh(self, refresh_token: str, account: dict | None = None) -> dict[str, str]:
         from curl_cffi import requests
         from services.proxy_service import proxy_settings
-        from utils.fingerprint import get_profile_by_name
+        from utils.fingerprint import get_profile_by_name, build_common_headers
 
         # 从账号信息还原 profile，保证 token 刷新的指纹与注册时一致
         profile_name = str((account or {}).get("fingerprint_profile") or "").strip()
@@ -476,20 +476,10 @@ class AccountService:
             if device_id:
                 session.cookies.set("oai-did", device_id, domain=".auth.openai.com")
                 session.cookies.set("oai-did", device_id, domain="auth.openai.com")
-            headers = {
-                "Accept": "application/json",
-                "Content-Type": "application/x-www-form-urlencoded",
-                "User-Agent": profile.user_agent,
-                "accept-language": profile.accept_language,
-                "origin": "https://auth.openai.com",
-                "referer": "https://auth.openai.com/",
-                "sec-ch-ua": profile.sec_ch_ua,
-                "sec-ch-ua-mobile": "?0",
-                "sec-ch-ua-platform": profile.sec_ch_ua_platform,
-                "sec-fetch-dest": "empty",
-                "sec-fetch-mode": "cors",
-                "sec-fetch-site": "same-origin",
-            }
+            headers = build_common_headers(profile)
+            headers["content-type"] = "application/x-www-form-urlencoded"
+            headers["origin"] = "https://auth.openai.com"
+            headers["referer"] = "https://auth.openai.com/"
             if device_id:
                 headers["oai-device-id"] = device_id
             response = session.post(

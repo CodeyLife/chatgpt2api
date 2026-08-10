@@ -28,7 +28,7 @@ from services.register.sentinel_service import (
     create_chromium_sentinel_session,
 )
 from services.register.profile_utils import birthday_from_config
-from utils.fingerprint import BrowserProfile, build_common_headers, build_navigate_headers, random_profile
+from utils.fingerprint import BrowserProfile, DEFAULT_PROFILE, build_common_headers, build_navigate_headers, random_profile
 
 base_dir = Path(__file__).resolve().parent
 config = {
@@ -690,7 +690,7 @@ def build_sentinel_headers(
     )
 
 
-def create_session(proxy: str = "", impersonate: str = "chrome") -> Any:
+def create_session(proxy: str = "", impersonate: str = DEFAULT_PROFILE.impersonate) -> Any:
     kwargs = proxy_settings.build_session_kwargs(
         proxy=proxy,
         upstream=True,

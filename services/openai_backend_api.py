@@ -363,6 +363,10 @@ class OpenAIBackendAPI:
         """获取当前 token 的账号信息。"""
         if not self.access_token:
             raise RuntimeError("access_token is required")
+        # 预热首页过 Cloudflare WAF，并提取 PoW 脚本引用。
+        # 与 stream_conversation/_stream_picture_conversation 等链路保持一致，
+        # 否则 /backend-api/me 等接口会被 WAF 直接 403（无 cf_clearance cookie）。
+        self._bootstrap()
         executor = ThreadPoolExecutor(max_workers=3)
         try:
             me_future = executor.submit(self._get_me)
