@@ -24,7 +24,7 @@ from services.account_service import account_service
 from services.config import config
 from services.proxy_service import proxy_settings
 from utils.helper import UpstreamHTTPError, ensure_ok, iter_sse_payloads, new_uuid, split_image_model
-from utils.log import logger
+from utils.log import logger, log_upstream_error
 from utils.pow import build_legacy_requirements_token, build_proof_token, parse_pow_resources
 from utils.turnstile import solve_turnstile_token
 
@@ -2741,6 +2741,14 @@ class OpenAIBackendAPI:
             )
             if response.status_code == 403 and attempt < max_retries - 1:
                 logger.warning("bootstrap 403 (attempt %d/%d), retrying...", attempt + 1, max_retries)
+                # 记录 bootstrap CF 拦截（含响应体片段供诊断）
+                log_upstream_error(
+                    "bootstrap_cf_block",
+                    url=self.base_url + "/",
+                    status_code=response.status_code,
+                    body=response.text[:500] if hasattr(response, "text") else "",
+                    extra={"attempt": attempt + 1, "max_retries": max_retries},
+                )
                 response.close()
                 time.sleep(2 * (attempt + 1))
                 continue

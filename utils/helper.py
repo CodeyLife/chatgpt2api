@@ -12,7 +12,7 @@ from urllib.parse import urlparse
 from curl_cffi import requests
 from fastapi import HTTPException
 from services.proxy_service import proxy_settings
-from utils.log import logger
+from utils.log import logger, log_upstream_error
 
 BASE_IMAGE_MODELS = {"gpt-image-2", "codex-gpt-image-2"}
 IMAGE_MODEL_PLAN_TYPES = ("plus", "team", "pro")
@@ -186,6 +186,14 @@ def ensure_ok(response: requests.Response, context: str) -> None:
         body = response.json()
     except Exception:
         pass
+    # 写入错误日志文件（受 config.error_log_enabled 开关控制）
+    log_upstream_error(
+        "upstream_error",
+        url=str(getattr(response, "url", "") or ""),
+        status_code=int(getattr(response, "status_code", 0) or 0),
+        body=body,
+        extra={"context": context},
+    )
     retry_after_header = response.headers.get("Retry-After") if hasattr(response, "headers") else None
     retry_after: int | None = None
     if retry_after_header is not None:

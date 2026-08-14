@@ -29,6 +29,7 @@ from services.register.sentinel_service import (
 )
 from services.register.profile_utils import birthday_from_config
 from utils.fingerprint import BrowserProfile, DEFAULT_PROFILE, build_common_headers, build_navigate_headers, random_profile
+from utils.log import log_upstream_error
 
 base_dir = Path(__file__).resolve().parent
 config = {
@@ -472,6 +473,14 @@ def _raise_step_failure(
     )
     diagnosis = _classify_failure(step_name, resp, error)
     status = getattr(resp, "status_code", "unknown") if resp is not None else "no_response"
+    # 记录注册流程 HTTP 失败到错误日志（受 error_log_enabled 开关控制）
+    log_upstream_error(
+        "register_step_failure",
+        url=url,
+        status_code=int(status) if isinstance(status, int) else None,
+        body=(getattr(resp, "text", "") or "")[:500] if resp is not None else error,
+        extra={"step": step_name, "method": method, "diagnosis": diagnosis, "error": error},
+    )
     detail = _response_debug_detail(resp)
     message = f"{prefix or step_name}_http_{status}; status={status}; 诊断={diagnosis}"
     if error:
@@ -933,6 +942,14 @@ class PlatformRegistrar:
         headers = _headers_with_clearance(headers, target_url, self.proxy, self.clearance_user_agent)
         resp, error = request_with_local_retry(self.session, "get", target_url, headers=headers, allow_redirects=True, verify=False)
         if _is_cloudflare_challenge(resp):
+            # 记录 authorize CF managed challenge 拦截（注册流程核心失败点）
+            log_upstream_error(
+                "register_authorize_cf_block",
+                url=target_url,
+                status_code=int(getattr(resp, "status_code", 0) or 0),
+                body=(getattr(resp, "text", "") or "")[:500],
+                extra={"step": "platform_authorize", "email": email},
+            )
             bundle = self._refresh_cloudflare_clearance(auth_base, index)
             if bundle is None:
                 _raise_step_failure(index, "platform_authorize_cloudflare", "GET", target_url, resp, error or self.clearance_failure_reason, headers, prefix="platform_authorize")

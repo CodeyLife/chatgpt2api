@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle, Cookie, LoaderCircle, PlugZap, Save, ShieldCheck } from "lucide-react";
+import { AlertTriangle, Cookie, FileWarning, LoaderCircle, PlugZap, Save, ShieldCheck } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -34,6 +34,7 @@ export function ProxyRuntimeCard() {
   const setProxyRuntimeField = useSettingsStore((state) => state.setProxyRuntimeField);
   const setProxyRuntimeClearanceField = useSettingsStore((state) => state.setProxyRuntimeClearanceField);
   const setProxyRuntimeStatusCodesText = useSettingsStore((state) => state.setProxyRuntimeStatusCodesText);
+  const setErrorLogEnabled = useSettingsStore((state) => state.setErrorLogEnabled);
 
   if (isLoadingConfig || !config?.proxy_runtime) {
     return (
@@ -44,6 +45,8 @@ export function ProxyRuntimeCard() {
       </Card>
     );
   }
+
+  const errorLogEnabled = Boolean(config.error_log_enabled);
 
   const runtime = config.proxy_runtime;
   const clearance = runtime.clearance;
@@ -360,6 +363,25 @@ export function ProxyRuntimeCard() {
               </div>
             ) : null}
           </div>
+        </div>
+
+        <div className="space-y-3 rounded-xl border border-stone-200 bg-white px-4 py-3">
+          <div className="flex items-center gap-2 text-sm font-medium text-stone-800">
+            <FileWarning className="size-4 text-stone-500" />
+            上游错误日志
+          </div>
+          <label className="flex items-center gap-3 rounded-xl border border-stone-200 bg-stone-50 px-4 py-3 text-sm text-stone-700">
+            <Checkbox
+              checked={errorLogEnabled}
+              onCheckedChange={(checked) => setErrorLogEnabled(Boolean(checked))}
+            />
+            <div className="space-y-1">
+              <div>记录上游访问错误到文件</div>
+              <p className="text-xs leading-5 text-stone-500">
+                开启后，遇到 403 / 5xx / Cloudflare 拦截等错误时，会把 URL、状态码、响应体摘要写入 <code className="rounded bg-stone-200 px-1 py-0.5 text-[11px]">data/error.log</code>（按天滚动，保留 14 天），用于定位 IP 信誉 / cf_clearance 失效等问题。
+              </p>
+            </div>
+          </label>
         </div>
 
         <div className="flex justify-end">

@@ -263,6 +263,7 @@ export type SettingsConfig = {
   auto_remove_invalid_accounts?: boolean;
   auto_remove_rate_limited_accounts?: boolean;
   account_management_log_enabled?: boolean;
+  error_log_enabled?: boolean;
   log_levels?: string[];
   image_storage?: ImageStorageSettings;
   proxy_runtime?: ProxyRuntimeSettings;

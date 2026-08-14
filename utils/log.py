@@ -3,7 +3,134 @@ import binascii
 import json
 import logging
 import re
+from logging.handlers import TimedRotatingFileHandler
+from pathlib import Path
 from typing import Any
+
+
+# 错误日志文件位置：与 config.json 同级的 data/error.log
+_ERROR_LOG_DIR = Path(__file__).resolve().parents[1] / "data"
+_ERROR_LOG_FILE = _ERROR_LOG_DIR / "error.log"
+
+
+class ErrorFileLogger:
+    """把上游访问错误（403 / 5xx / CF 拦截等）写入按天滚动的文件日志。
+
+    - 文件：data/error.log（每天滚动，保留 14 天）
+    - 格式：每行一个 JSON，含时间/事件/URL/状态码/响应体摘要/附加字段
+    - 受 config.error_log_enabled 开关控制
+    """
+
+    def __init__(self) -> None:
+        self._handler: TimedRotatingFileHandler | None = None
+        self._logger: logging.Logger | None = None
+        self._initialized = False
+
+    def _ensure_logger(self) -> logging.Logger | None:
+        if not self._initialized:
+            self._initialized = True
+            try:
+                _ERROR_LOG_DIR.mkdir(parents=True, exist_ok=True)
+                handler = TimedRotatingFileHandler(
+                    _ERROR_LOG_FILE,
+                    when="midnight",
+                    interval=1,
+                    backupCount=14,
+                    encoding="utf-8",
+                )
+                handler.setFormatter(logging.Formatter("%(message)s"))
+                logger = logging.getLogger("chatgpt2api.error_file")
+                logger.handlers.clear()
+                logger.addHandler(handler)
+                logger.setLevel(logging.INFO)
+                logger.propagate = False
+                self._handler = handler
+                self._logger = logger
+            except Exception:
+                # 日志初始化失败不应影响业务流程
+                self._logger = None
+        return self._logger
+
+    def _enabled(self) -> bool:
+        try:
+            from services.config import config
+
+            return bool(config.error_log_enabled)
+        except Exception:
+            return False
+
+    def log(
+        self,
+        event: str,
+        url: str = "",
+        status_code: int | None = None,
+        body: Any = None,
+        extra: dict[str, Any] | None = None,
+    ) -> None:
+        """记录一条上游错误到文件。开关关闭时静默跳过。"""
+        if not self._enabled():
+            return
+        logger = self._ensure_logger()
+        if logger is None:
+            return
+        # body 归一化为字符串并截断，避免单行过长
+        if body is None:
+            body_str = ""
+        elif isinstance(body, (dict, list)):
+            try:
+                body_str = json.dumps(body, ensure_ascii=False, default=str)
+            except (TypeError, ValueError):
+                body_str = repr(body)
+        else:
+            body_str = str(body)
+        if len(body_str) > 2000:
+            body_str = body_str[:2000] + "…[truncated]"
+        record = {
+            "ts": self._now_iso(),
+            "event": event,
+            "url": url,
+            "status": status_code,
+            "body": body_str,
+        }
+        if extra:
+            # 仅保留可序列化字段，避免日志写入失败
+            clean_extra: dict[str, Any] = {}
+            for key, value in extra.items():
+                try:
+                    json.dumps(value, ensure_ascii=False, default=str)
+                    clean_extra[key] = value
+                except (TypeError, ValueError):
+                    clean_extra[key] = repr(value)
+            record["extra"] = clean_extra
+        try:
+            logger.info(json.dumps(record, ensure_ascii=False, default=str))
+        except Exception:
+            pass
+
+    @staticmethod
+    def _now_iso() -> str:
+        import time as _time
+
+        # 本地时区 ISO 时间，便于日志阅读
+        offset = _time.strftime("%z")
+        if offset:
+            offset = offset[:3] + ":" + offset[3:]
+        return _time.strftime("%Y-%m-%dT%H:%M:%S", _time.localtime()) + offset
+
+
+# 模块级单例
+error_logger = ErrorFileLogger()
+
+
+def log_upstream_error(
+    event: str,
+    url: str = "",
+    status_code: int | None = None,
+    body: Any = None,
+    extra: dict[str, Any] | None = None,
+) -> None:
+    """对外暴露的上游错误日志写入入口。"""
+    error_logger.log(event, url=url, status_code=status_code, body=body, extra=extra)
 
 
 class Logger:
